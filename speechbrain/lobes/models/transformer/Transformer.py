@@ -130,7 +130,13 @@ class TransformerInterface(nn.Module):
         # self.output_hidden_states = output_hidden_states
         self.layerdrop_prob = layerdrop_prob
 
-        assert attention_type in ["regularMHA", "RelPosMHAXL", "hypermixing"]
+        assert attention_type in [
+            "regularMHA",
+            "RelPosMHAXL",
+            "hypermixing",
+            "fastattention",
+        ]
+
         assert positional_encoding in ["fixed_abs_sine", None]
 
         assert (
@@ -356,6 +362,10 @@ class TransformerEncoderLayer(nn.Module):
                 tied=False,
                 num_heads=nhead,
                 fix_tm_hidden_size=False,
+            )
+        elif attention_type == "fastattention":
+            self.self_att = sb.nnet.attention.Fastattention(
+                d_model, nhead, dropout
             )
 
         if ffn_type == "regularFFN":

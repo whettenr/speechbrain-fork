@@ -24,6 +24,7 @@ from speechbrain.nnet.attention import (
 )
 from speechbrain.utils.dynamic_chunk_training import DynChunkTrainConfig
 from speechbrain.nnet.hypermixing import HyperMixing
+from speechbrain.nnet.attention import Fastattention
 from speechbrain.nnet.normalization import LayerNorm
 from speechbrain.nnet.activations import Swish
 
@@ -397,6 +398,12 @@ class ConformerEncoderLayer(nn.Module):
                 num_heads=nhead,
                 fix_tm_hidden_size=False,
             )
+        elif attention_type == "fastattention":
+            self.mha_layer = Fastattention(
+                enc_dim=d_model,
+                nhead=nhead,
+                dropout=dropout,
+            )
 
         self.convolution_module = ConvolutionModule(
             d_model, kernel_size, bias, activation, dropout, causal=causal
@@ -617,6 +624,14 @@ class ConformerEncoder(nn.Module):
     >>> net = ConformerEncoder(4, 512, 512, 8, output_hidden_states=True)
     >>> output, _, hs = net(x, pos_embs=pos_emb)
     >>> hs[0].shape
+    torch.Size([8, 60, 512])
+
+    # import torch
+    # from speechbrain.lobes.models.transformer.Conformer import ConformerEncoder
+    # x = torch.rand((8, 60, 512)); pos_emb = torch.rand((1, 2*60-1, 512)); 
+    # net = ConformerEncoder(4, 512, 512, 8, attention_type="fastattention")
+    # output, _= net(x, pos_embs=pos_emb)
+    # output.shape
     torch.Size([8, 60, 512])
     """
 

@@ -892,6 +892,13 @@ class Fastattention(nn.Module):
     >>> out = sum(x)
     >>> print(out)
     torch.Size([2, 4, 8])
+
+    >>> from speechbrain.nnet.attention import Fastattention
+    >>> fast = Fastattention(512, 4)
+    >>> x = torch.rand(2,512,512)
+    >>> out = fast(x)
+    >>> out.shape
+    torch.Size([2, 512, 512])
     """
 
     def __init__(
@@ -959,7 +966,17 @@ class Fastattention(nn.Module):
         
         
     
-    def forward(self, x, padding_mask=None):
+    # def forward(self, x, padding_mask=None):
+    def forward(
+        self,
+        q,
+        k, # not used
+        v, # not used
+        attn_mask: Optional[torch.Tensor] = None, # not used
+        key_padding_mask: Optional[torch.Tensor] = None,
+        return_attn_weights: Optional[bool] = True,
+        pos_embs: Optional[torch.Tensor] = None,
+    ):
         '''
         x : torch.Tensor
             (B, T, E) where L is the target sequence length,
@@ -972,7 +989,8 @@ class Fastattention(nn.Module):
             value of True will be ignored while the position with the value
             of False will be unchanged.
         '''
-        
+        x = q
+        padding_mask = key_padding_mask
         B, T, E = x.shape
         
         query = self.query_proj(x) # (batch, time, enc_dim) 
@@ -997,4 +1015,4 @@ class Fastattention(nn.Module):
         # 10/May remove self.dropout of self.out_proj(value) + query
         value = self.out_proj(value) + query
         
-        return value
+        return value, None
