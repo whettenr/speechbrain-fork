@@ -610,7 +610,7 @@ class ConformerEncoder(nn.Module):
         Whether the convolutions should be causal or not.
     attention_type: str, optional
         type of attention layer, e.g. regulaMHA for regular MultiHeadAttention.
-    TODO output_hidden_states: bool, optional
+    output_hidden_states: bool, optional
         Whether the model should output the hidden states.
     layerdrop_prob: float
         The probability to drop an entire layer
@@ -658,7 +658,7 @@ class ConformerEncoder(nn.Module):
         dropout=0.0,
         causal=False,
         attention_type="RelPosMHAXL",
-        # output_hidden_states=False,
+        output_hidden_states=False,
         layerdrop_prob=0.0,
     ):
         super().__init__()
@@ -685,7 +685,7 @@ class ConformerEncoder(nn.Module):
         self.layerdrop_prob = layerdrop_prob
         self.rng = np.random.default_rng()
         self.attention_type = attention_type
-        # self.output_hidden_states = output_hidden_states
+        self.output_hidden_states = output_hidden_states
 
     def forward(
         self,
@@ -727,8 +727,8 @@ class ConformerEncoder(nn.Module):
             keep_probs = None
         
         attention_lst = []
-        # if self.output_hidden_states:
-        #     hidden_state_lst = [output]
+        if self.output_hidden_states:
+            hidden_state_lst = [output]
 
         for i, enc_layer in enumerate(self.layers):
             if (
@@ -745,12 +745,12 @@ class ConformerEncoder(nn.Module):
                 )
                 attention_lst.append(attention)
 
-                # if self.output_hidden_states:
-                #     hidden_state_lst.append(output)
+                if self.output_hidden_states:
+                    hidden_state_lst.append(output)
 
         output = self.norm(output)
-        # if self.output_hidden_states:
-        #     return output, attention_lst, hidden_state_lst
+        if self.output_hidden_states:
+            return output, attention_lst, hidden_state_lst
         return output, attention_lst
 
     def forward_streaming(
