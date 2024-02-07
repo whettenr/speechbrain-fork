@@ -21,6 +21,7 @@ from speechbrain.nnet.attention import (
     RelPosMHAXL,
     MultiheadAttention,
     PositionalwiseFeedForward,
+    RelPosMHAXLChunked,
 )
 from speechbrain.utils.dynamic_chunk_training import DynChunkTrainConfig
 from speechbrain.nnet.hypermixing import HyperMixing
@@ -404,6 +405,13 @@ class ConformerEncoderLayer(nn.Module):
                 nhead=nhead,
                 dropout=dropout,
             )
+        elif attention_type == "RelPosMHAXLChunked":
+            self.mha_layer = RelPosMHAXLChunked(
+                num_heads=nhead,
+                embed_dim=d_model,
+                dropout=dropout,
+                mask_pos_future=causal,
+            )
 
         self.convolution_module = ConvolutionModule(
             d_model, kernel_size, bias, activation, dropout, causal=causal
@@ -634,6 +642,7 @@ class ConformerEncoder(nn.Module):
     # output.shape
     torch.Size([8, 60, 512])
     """
+    torch.Size([8, 60, 512])
 
     def __init__(
         self,
