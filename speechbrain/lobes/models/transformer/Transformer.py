@@ -133,6 +133,7 @@ class TransformerInterface(nn.Module):
         assert attention_type in [
             "regularMHA",
             "RelPosMHAXL",
+            "RelPosMHAXLChunked",
             "hypermixing",
             "fastattention",
         ]
