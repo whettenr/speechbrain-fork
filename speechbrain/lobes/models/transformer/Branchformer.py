@@ -292,7 +292,7 @@ class BranchformerEncoder(nn.Module):
         csgu_linear_units=3072,
         gate_activation=nn.Identity,
         use_linear_after_conv=False,
-        # output_hidden_states=False,
+        output_hidden_states=False,
         layerdrop_prob=0.0,
     ):
         super().__init__()
@@ -319,7 +319,7 @@ class BranchformerEncoder(nn.Module):
         self.attention_type = attention_type
         self.layerdrop_prob = layerdrop_prob
         self.rng = np.random.default_rng()
-        # self.output_hidden_states = output_hidden_states
+        self.output_hidden_states = output_hidden_states
 
     def forward(
         self,
@@ -361,8 +361,8 @@ class BranchformerEncoder(nn.Module):
             keep_probs = None
 
         attention_lst = []
-        # if self.output_hidden_states:
-        #     hidden_state_lst = [output]
+        if self.output_hidden_states:
+            hidden_state_lst = [output]
 
         for i, enc_layer in enumerate(self.layers):
             if (
@@ -379,10 +379,10 @@ class BranchformerEncoder(nn.Module):
                 )
                 attention_lst.append(attention)
 
-                # if self.output_hidden_states:
-                #     hidden_state_lst.append(output)
+                if self.output_hidden_states:
+                    hidden_state_lst.append(output)
         
         output = self.norm(output)
-        # if self.output_hidden_states:
-            # return output, attention_lst, hidden_state_lst
+        if self.output_hidden_states:
+            return output, attention_lst, hidden_state_lst
         return output, attention_lst
