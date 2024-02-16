@@ -144,7 +144,7 @@ class TransformerInterface(nn.Module):
             num_encoder_layers + num_decoder_layers > 0
         ), "number of encoder layers and number of decoder layers cannot both be 0!"
 
-        if positional_encoding == "fixed_abs_sine":
+        if positional_encoding == "fixed_abs_sine" or attention_type == "fastattention":
             self.positional_encoding = PositionalEncoding(d_model, max_length)
         elif positional_encoding is None:
             pass
@@ -174,6 +174,8 @@ class TransformerInterface(nn.Module):
                     attention_type=self.attention_type,
                     kdim=self.encoder_kdim,
                     vdim=self.encoder_vdim,
+                    output_hidden_states=self.output_hidden_states,
+                    layerdrop_prob=self.layerdrop_prob,
                 )
             elif encoder_module == "conformer":
                 self.encoder = ConformerEncoder(

@@ -339,12 +339,12 @@ class TransformerASR(TransformerInterface):
         # add pos encoding to queries if are sinusoidal ones else
         if (
             self.attention_type == "hypermixing"
-            or self.attention_type == "fastattention"
+            
         ):
             pos_embs_encoder = None
         elif self.attention_type == "RelPosMHAXL":
             pos_embs_encoder = self.positional_encoding(src)
-        elif self.positional_encoding_type == "fixed_abs_sine":
+        elif self.positional_encoding_type == "fixed_abs_sine" or self.attention_type == "fastattention":
             src = src + self.positional_encoding(src)  # add the encodings here
             pos_embs_encoder = None
 
@@ -364,6 +364,7 @@ class TransformerASR(TransformerInterface):
         elif (
             self.positional_encoding_type == "fixed_abs_sine"
             or self.attention_type == "hypermixing"
+            or self.attention_type == "fastattention"
         ):
             tgt = tgt + self.positional_encoding(tgt)
             pos_embs_target = None
@@ -462,12 +463,11 @@ class TransformerASR(TransformerInterface):
         src = self.custom_src_module(src)
         if (
             self.attention_type == "hypermixing"
-            or self.attention_type == "fastattention"
         ):
             pos_embs_source = None
         elif self.attention_type == "RelPosMHAXL":
             pos_embs_source = self.positional_encoding(src)
-        elif self.positional_encoding_type == "fixed_abs_sine":
+        elif self.positional_encoding_type == "fixed_abs_sine" or self.attention_type == "fastattention":
             src = src + self.positional_encoding(src)
             pos_embs_source = None
 
