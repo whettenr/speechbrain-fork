@@ -523,25 +523,25 @@ class TransformerEncoder(nn.Module):
     ):
         super().__init__()
 
-        self.layers = torch.nn.ModuleList(
-            [
-                TransformerEncoderLayer(
-                    d_ffn=d_ffn,
-                    nhead=nhead,
-                    d_model=d_model,
-                    kdim=kdim,
-                    vdim=vdim,
-                    dropout=dropout,
-                    activation=activation,
-                    normalize_before=normalize_before,
-                    causal=causal,
-                    attention_type=attention_type,
-                    ffn_type=ffn_type,
-                    ffn_cnn_kernel_size_list=ffn_cnn_kernel_size_list,
-                )
-                for i in range(num_layers)
-            ]
-        )
+#        self.layers = torch.nn.ModuleList(
+#            [
+#                TransformerEncoderLayer(
+#                    d_ffn=d_ffn,
+#                    nhead=nhead,
+#                    d_model=d_model,
+#                    kdim=kdim,
+#                    vdim=vdim,
+#                    dropout=dropout,
+#                    activation=activation,
+#                    normalize_before=normalize_before,
+#                    causal=causal,
+#                    attention_type=attention_type,
+#                    ffn_type=ffn_type,
+#                    ffn_cnn_kernel_size_list=ffn_cnn_kernel_size_list,
+#                )
+#                for i in range(num_layers)
+#            ]
+#        )
         shared_1 = [
             TransformerEncoderLayer(
                 d_ffn=d_ffn,
@@ -559,45 +559,7 @@ class TransformerEncoder(nn.Module):
             )
             for _ in range(8)
         ]
-        shared_2 = [
-            TransformerEncoderLayer(
-                d_ffn=d_ffn,
-                nhead=nhead,
-                d_model=d_model,
-                kdim=kdim,
-                vdim=vdim,
-                dropout=dropout,
-                activation=activation,
-                normalize_before=normalize_before,
-                causal=causal,
-                attention_type=attention_type,
-                ffn_type=ffn_type,
-                ffn_cnn_kernel_size_list=ffn_cnn_kernel_size_list,
-            )
-            for _ in range(8)
-        ]
-        shared_3 = [
-            TransformerEncoderLayer(
-                d_ffn=d_ffn,
-                nhead=nhead,
-                d_model=d_model,
-                kdim=kdim,
-                vdim=vdim,
-                dropout=dropout,
-                activation=activation,
-                normalize_before=normalize_before,
-                causal=causal,
-                attention_type=attention_type,
-                ffn_type=ffn_type,
-                ffn_cnn_kernel_size_list=ffn_cnn_kernel_size_list,
-            )
-            for _ in range(8)
-        ]
-        layer_list = []
-        for i in range(i):
-            layer_list.append(shared_1[i])
-            layer_list.append(shared_2[i])
-            layer_list.append(shared_3[i])
+        layer_list = shared_1+shared_1+shared_1
         self.layers = torch.nn.ModuleList(layer_list)
         self.norm = sb.nnet.normalization.LayerNorm(d_model, eps=1e-6)
         self.layerdrop_prob = layerdrop_prob
