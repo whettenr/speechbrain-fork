@@ -522,9 +522,8 @@ class TransformerEncoder(nn.Module):
         output_hidden_states = False
     ):
         super().__init__()
-
-        self.layers = torch.nn.ModuleList(
-            [
+        
+        shared_1 = [
                 TransformerEncoderLayer(
                     d_ffn=d_ffn,
                     nhead=nhead,
@@ -539,9 +538,48 @@ class TransformerEncoder(nn.Module):
                     ffn_type=ffn_type,
                     ffn_cnn_kernel_size_list=ffn_cnn_kernel_size_list,
                 )
-                for i in range(num_layers)
+                for _ in range(8)
             ]
-        )
+        shared_2 = [
+                TransformerEncoderLayer(
+                    d_ffn=d_ffn,
+                    nhead=nhead,
+                    d_model=d_model,
+                    kdim=kdim,
+                    vdim=vdim,
+                    dropout=dropout,
+                    activation=activation,
+                    normalize_before=normalize_before,
+                    causal=causal,
+                    attention_type=attention_type,
+                    ffn_type=ffn_type,
+                    ffn_cnn_kernel_size_list=ffn_cnn_kernel_size_list,
+                )
+                for _ in range(8)
+            ]
+        shared_3 = [
+                TransformerEncoderLayer(
+                    d_ffn=d_ffn,
+                    nhead=nhead,
+                    d_model=d_model,
+                    kdim=kdim,
+                    vdim=vdim,
+                    dropout=dropout,
+                    activation=activation,
+                    normalize_before=normalize_before,
+                    causal=causal,
+                    attention_type=attention_type,
+                    ffn_type=ffn_type,
+                    ffn_cnn_kernel_size_list=ffn_cnn_kernel_size_list,
+                )
+                for _ in range(8)
+            ]
+        layer_list = []
+        for i in range(i): 
+            layer_list.append(shared_1[i])
+            layer_list.append(shared_2[i])
+            layer_list.append(shared_3[i])
+        self.layers = torch.nn.ModuleList(layer_list)
         self.norm = sb.nnet.normalization.LayerNorm(d_model, eps=1e-6)
         self.layerdrop_prob = layerdrop_prob
         self.rng = np.random.default_rng()
@@ -557,6 +595,47 @@ class TransformerEncoder(nn.Module):
         dynchunktrain_config=None,
     ):
         """
+        Arguments
+        ----------
+        src : tensor
+            The sequence to the encoder layer (required).
+        src_mask : tensor
+            The mask for the src sequence (optional).
+        src_key_padding_mask : tensor
+            The mask for the src keys per batch (optional).
+        """
+        assert (
+            dynchunktrain_config is None
+        ), "Dynamic Chunk Training unsupported for this encoder"
+
+        output = src
+        if self.layerdrop_prob > 0.0:
+            keep_probs = self.rng.random(len(self.layers))
+        else:
+            keep_probs = None
+        attention_lst = []
+        if self.output_hidden_states:
+            hidden_state_lst = [output]
+        for i, enc_layer in enumerate(self.layers):
+            if (
+                not self.training
+                or self.layerdrop_prob == 0.0
+                or keep_probs[i] > self.layerdrop_prob
+            ):
+                output, attention = enc_layer(
+                    output,
+                    src_mask=src_mask,
+                    src_key_padding_mask=src_key_padding_mask,
+                    pos_embs=pos_embs,
+                )
+                attention_lst.append(attention)
+
+                if self.output_hidden_states:
+                    hidden_state_lst.append(output)
+        
+        output = self.norm(output)
+        if self.output_hidden_states:
+            return output, attention_lst, hidden_state_lst
         Arguments
         ----------
         src : tensor
@@ -911,47 +990,6 @@ def get_key_padding_mask(padded_input, pad_idx):
     ----------
     padded_input: int
         Padded input.
-    pad_idx:
-        idx for padding element.
-    Example
-    -------
-    >>> a = torch.LongTensor([[1,1,0], [2,3,0], [4,5,0]])
-    >>> get_key_padding_mask(a, pad_idx=0)
-    tensor([[False, False,  True],
-            [False, False,  True],
-            [False, False,  True]])
-    """
-    if len(padded_input.shape) == 4:
-        bz, time, ch1, ch2 = padded_input.shape
-        padded_input = padded_input.reshape(bz, time, ch1 * ch2)
-
-    key_padded_mask = padded_input.eq(pad_idx).to(padded_input.device)
-
-    # if the input is more than 2d, mask the locations where they are silence
-    # across all channels
-    if len(padded_input.shape) > 2:
-        key_padded_mask = key_padded_mask.float().prod(dim=-1).bool()
-        return key_padded_mask.detach()
-
-    return key_padded_mask.detach()
-
-
-def get_lookahead_mask(padded_input):
-    """Creates a binary mask for each sequence which maskes future frames.
-    Arguments
-    ---------
-    padded_input: torch.Tensor
-        Padded input tensor.
-    Example
-    -------
-    >>> a = torch.LongTensor([[1,1,0], [2,3,0], [4,5,0]])
-    >>> get_lookahead_mask(a)
-    tensor([[0., -inf, -inf],
-            [0., 0., -inf],
-            [0., 0., 0.]])
-    """
-    seq_len = padded_input.shape[1]
-    mask = (
         torch.triu(torch.ones((seq_len, seq_len), device=padded_input.device))
         == 1
     ).transpose(0, 1)
