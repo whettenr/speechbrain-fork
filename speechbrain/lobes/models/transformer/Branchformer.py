@@ -20,6 +20,7 @@ from speechbrain.nnet.normalization import LayerNorm
 from speechbrain.lobes.models.convolution import ConvolutionalSpatialGatingUnit
 
 from speechbrain.nnet.hypermixing import HyperMixing
+from speechbrain.nnet.attention import Fastattention
 
 
 class ConvolutionBranch(nn.Module):
@@ -169,6 +170,13 @@ class BranchformerEncoderLayer(nn.Module):
                 tied=False,
                 num_heads=nhead,
                 fix_tm_hidden_size=False,
+            )
+        elif attention_type == "fastattention":
+            print('using FASTATTENTION')
+            self.mha_layer = Fastattention(
+                enc_dim=d_model,
+                nhead=nhead,
+                dropout=dropout,
             )
 
         self.convolution_branch = ConvolutionBranch(
