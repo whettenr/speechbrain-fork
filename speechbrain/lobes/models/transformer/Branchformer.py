@@ -172,7 +172,6 @@ class BranchformerEncoderLayer(nn.Module):
                 fix_tm_hidden_size=False,
             )
         elif attention_type == "fastattention":
-            print('using FASTATTENTION')
             self.mha_layer = Fastattention(
                 enc_dim=d_model,
                 nhead=nhead,
