@@ -18,9 +18,10 @@ import numpy as np
 from speechbrain.nnet.attention import RelPosMHAXL, MultiheadAttention
 from speechbrain.nnet.normalization import LayerNorm
 from speechbrain.lobes.models.convolution import ConvolutionalSpatialGatingUnit
-
 from speechbrain.nnet.hypermixing import HyperMixing
 from speechbrain.nnet.attention import Fastattention
+from speechbrain.lobes.models.VanillaNN import VanillaNN
+from speechbrain.nnet.summary_mixing import SummaryMixing
 
 
 class ConvolutionBranch(nn.Module):
@@ -119,6 +120,26 @@ class BranchformerEncoderLayer(nn.Module):
          Activation function used at the gate of the CSGU module.
     use_linear_after_conv: bool, optional
         If True, will apply a linear transformation of size input_size//2
+    local_proj_out_dim: int, optional
+        The dimension of the output of the local projection branch. This
+        will be concatenated with the output of the summary branch
+        (default: 512).
+    summary_hid_dim: list [int], optional
+        A list of dimension specifying both the number of hidden layers
+        as well as the size of them in the summary projection branch
+        (default: [1024]).
+    summary_out_dim: int, optional
+        The dimension of the output of the summary projection branch. This
+        will be concatenated with the output of the local branch
+        (default: 1024).
+    activation: torch.nn.Module, optional
+        Torch module specifying the activation function used in both the local
+        and summary branches.
+        (default: torch.nn.GELU)
+    mode: string, optional
+        One of "SummaryMixing" or "SummaryMixing-lite". Changes the SummaryMixing cell
+        according to the definition of the article. "SummaryMixing-lite" removes the
+        local project branch.
 
     Example
     -------
@@ -144,39 +165,70 @@ class BranchformerEncoderLayer(nn.Module):
         csgu_linear_units=3072,
         gate_activation=nn.Identity,
         use_linear_after_conv=False,
+        local_proj_hid_dim=[512],
+        local_proj_out_dim=512,
+        summary_hid_dim=[1024],
+        summary_out_dim=1024,
+        mode="SummaryMixing",
     ):
         super().__init__()
 
-        if attention_type == "regularMHA":
-            self.mha_layer = MultiheadAttention(
-                nhead=nhead,
-                d_model=d_model,
-                dropout=dropout,
-                kdim=kdim,
-                vdim=vdim,
-            )
-        elif attention_type == "RelPosMHAXL":
-            # transformerXL style positional encoding
-            self.mha_layer = RelPosMHAXL(
-                num_heads=nhead,
-                embed_dim=d_model,
-                dropout=dropout,
-                mask_pos_future=False,
-            )
-        elif attention_type == "hypermixing":
-            self.mha_layer = HyperMixing(
-                input_output_dim=d_model,
-                hypernet_size=d_model * 4,
-                tied=False,
-                num_heads=nhead,
-                fix_tm_hidden_size=False,
-            )
-        elif attention_type == "fastattention":
-            self.mha_layer = Fastattention(
-                enc_dim=d_model,
-                nhead=nhead,
-                dropout=dropout,
-            )
+        self.attention_type = attention_type
+        self.mode = mode
+
+        # If CNN only, no need for the attention branch and merging
+        if self.attention_type != "cnnonly":
+            if attention_type == "regularMHA":
+                self.mha_layer = MultiheadAttention(
+                    nhead=nhead, d_model=d_model, dropout=dropout, kdim=kdim, vdim=vdim,
+                )
+                self.merge_proj = torch.nn.Linear(d_model * 2, d_model)
+            elif attention_type == "RelPosMHAXL":
+                # transformerXL style positional encoding
+                self.mha_layer = RelPosMHAXL(
+                    num_heads=nhead,
+                    embed_dim=d_model,
+                    dropout=dropout,
+                    mask_pos_future=False,
+                )
+                self.merge_proj = torch.nn.Linear(d_model * 2, d_model)
+            elif attention_type == "hypermixing":
+                self.mha_layer = HyperMixing(
+                    input_output_dim=d_model,
+                    hypernet_size=local_proj_hid_dim[0],
+                    tied=False,
+                    num_heads=nhead,
+                    fix_tm_hidden_size=False,
+                )
+                self.merge_proj = torch.nn.Linear(d_model * 2, d_model)
+
+            elif attention_type == "SummaryMixing":
+                self.mha_layer = SummaryMixing(
+                    enc_dim=d_model,
+                    nhead=nhead,
+                    local_proj_hid_dim=local_proj_hid_dim,
+                    local_proj_out_dim=local_proj_out_dim,
+                    summary_hid_dim=summary_hid_dim,
+                    summary_out_dim=summary_out_dim,
+                    activation=activation,
+                    mode=mode,
+                )
+                self.merge_dnn_blocks = summary_hid_dim + [d_model]
+                self.merge_proj = VanillaNN(
+                    input_shape=[None, None, local_proj_out_dim + summary_out_dim],
+                    dnn_blocks=len(self.merge_dnn_blocks),
+                    dnn_neurons=self.merge_dnn_blocks,
+                    activation=activation,
+                )
+            elif attention_type == "fastattention":
+                self.mha_layer = Fastattention(
+                    enc_dim=d_model,
+                    nhead=nhead,
+                    dropout=dropout,
+                )
+                self.merge_proj = torch.nn.Linear(d_model * 2, d_model)
+
+            self.norm_mhsa = LayerNorm(d_model)
 
         self.convolution_branch = ConvolutionBranch(
             input_size=d_model,
@@ -188,9 +240,6 @@ class BranchformerEncoderLayer(nn.Module):
             use_linear_after_conv=use_linear_after_conv,
         )
 
-        self.merge_proj = torch.nn.Linear(d_model * 2, d_model)
-
-        self.norm_mhsa = LayerNorm(d_model)
         self.norm_conv = LayerNorm(d_model)
         self.dropout = nn.Dropout(dropout)
 
@@ -213,34 +262,77 @@ class BranchformerEncoderLayer(nn.Module):
         pos_embs: torch.Tensor, torch.nn.Module, optional
             Module or tensor containing the input sequence positional embeddings
         """
+        if self.attention_type == "cnnonly":
+            x2 = x
+            x2 = self._forward_cnn_branch(x2)
+            x = x + x2
+            self_attn = None
+        else:
+            x1 = x
+            x2 = x
+            # Branch 1: Self-attention
+            x1, self_attn = self._forward_mha_branch(
+                x1, src_mask, src_key_padding_mask, pos_embs
+            )
 
-        # Two branches!
-        x1 = x
-        x2 = x
+            # Branch 2: Convolutional gating MLP
+            # In ESPnet, masks are not used?! we do the same but warning!
+            x2 = self._forward_cnn_branch(x2)
 
-        # Branch 1: Self-attention
-        x1 = self.norm_mhsa(x1)
-        x1, self_attn = self.mha_layer(
-            x1,
-            x1,
-            x1,
-            attn_mask=src_mask,
-            key_padding_mask=src_key_padding_mask,
-            pos_embs=pos_embs,
-        )
-        x1 = self.dropout(x1)
-
-        # Branch 2: Convolutional gating MLP
-        # In ESPnet, masks are not used?! we do the same but warning!
-        x2 = self.norm_conv(x2)
-        x2 = self.convolution_branch(x2)
-        x2 = self.dropout(x2)
-
-        # Merge both branches, we only do concatenation as it performs better.
-        # According to the original Branchformer paper.
-        x = x + self.dropout(self.merge_proj(torch.cat([x1, x2], dim=-1)))
+            x = x + self.dropout(self.merge_proj(torch.cat([x1, x2], dim=-1)))
 
         return x, self_attn
+
+    def _forward_cnn_branch(
+        self, x,
+    ):
+        """
+        Arguments
+        ----------
+        x : torch.Tensor
+            The sequence to the encoder layer.
+        """
+        x = self.norm_conv(x)
+        x = self.convolution_branch(x)
+
+        return self.dropout(x)
+
+    def _forward_mha_branch(
+        self,
+        x,
+        src_mask: Optional[torch.Tensor] = None,
+        src_key_padding_mask: Optional[torch.Tensor] = None,
+        pos_embs: Optional[torch.Tensor] = None,
+    ):
+        """
+        Arguments
+        ----------
+        x : torch.Tensor
+            The sequence to the encoder layer.
+        src_mask : torch.Tensor, optional
+            The mask for the src sequence.
+        src_key_padding_mask : torch.Tensor, optional
+            The mask for the src keys per batch.
+        pos_embs: torch.Tensor, torch.nn.Module, optional
+            Module or tensor containing the input sequence positional embeddings
+        """
+
+        x = self.norm_mhsa(x)
+
+        if self.attention_type == "SummaryMixing":
+            x = self.mha_layer(x, attention_mask=src_key_padding_mask)
+            self_attn = None
+        else:
+            x, self_attn = self.mha_layer(
+                x,
+                x,
+                x,
+                attn_mask=src_mask,
+                key_padding_mask=src_key_padding_mask,
+                pos_embs=pos_embs,
+            )
+
+        return self.dropout(x), self_attn
 
 
 class BranchformerEncoder(nn.Module):
@@ -265,13 +357,33 @@ class BranchformerEncoder(nn.Module):
     dropout : int, optional
         Dropout for the encoder.
     attention_type: str, optional
-        type of attention layer, e.g. regulaMHA for regular MultiHeadAttention.
+        type of attention layer, e.g. SummaryMixing or regulaMHA for regular MultiHeadAttention.
     csgu_linear_units: int, optional
         Number of neurons in the hidden linear units of the CSGU Module.
     gate_activation: torch.nn.Module, optional
          Activation function used at the gate of the CSGU module.
     use_linear_after_conv: bool, optional
         If True, will apply a linear transformation of size input_size//2.
+    local_proj_out_dim: int, optional
+        The dimension of the output of the local projection branch. This
+        will be concatenated with the output of the summary branch
+        (default: 512).
+    summary_hid_dim: list [int], optional
+        A list of dimension specifying both the number of hidden layers
+        as well as the size of them in the summary projection branch
+        (default: [1024]).
+    summary_out_dim: int, optional
+        The dimension of the output of the summary projection branch. This
+        will be concatenated with the output of the local branch
+        (default: 1024).
+    activation: torch.nn.Module, optional
+        Torch module specifying the activation function used in both the local
+        and summary branches.
+        (default: torch.nn.GELU)
+    mode: string, optional
+        One of "SummaryMixing" or "SummaryMixing-lite". Changes the SummaryMixing cell
+        according to the definition of the article. "SummaryMixing-lite" removes the
+        local project branch.
 
 
     Example
@@ -299,6 +411,11 @@ class BranchformerEncoder(nn.Module):
         csgu_linear_units=3072,
         gate_activation=nn.Identity,
         use_linear_after_conv=False,
+        local_proj_hid_dim=[512],
+        local_proj_out_dim=512,
+        summary_hid_dim=[1024],
+        summary_out_dim=1024,
+        mode="SummaryMixing",
         output_hidden_states=False,
         layerdrop_prob=0.0,
     ):
@@ -318,6 +435,11 @@ class BranchformerEncoder(nn.Module):
                     csgu_linear_units=csgu_linear_units,
                     gate_activation=gate_activation,
                     use_linear_after_conv=use_linear_after_conv,
+                    local_proj_hid_dim=local_proj_hid_dim,
+                    local_proj_out_dim=local_proj_out_dim,
+                    summary_hid_dim=summary_hid_dim,
+                    summary_out_dim=summary_out_dim,
+                    mode=mode,
                 )
                 for i in range(num_layers)
             ]

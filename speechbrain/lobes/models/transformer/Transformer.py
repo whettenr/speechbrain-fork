@@ -10,20 +10,23 @@ import speechbrain as sb
 from typing import Optional
 import numpy as np
 
-
 from .Conformer import ConformerEncoder
 from .Branchformer import BranchformerEncoder
 from speechbrain.nnet.activations import Swish
 from speechbrain.nnet.attention import RelPosEncXL
 from speechbrain.nnet.CNN import Conv1d
+from speechbrain.nnet.summary_mixing import SummaryMixing
 
 
 class TransformerInterface(nn.Module):
     """This is an interface for transformer model.
+
     Users can modify the attributes and define the forward function as
     needed according to their own tasks.
+
     The architecture is based on the paper "Attention Is All You Need":
     https://arxiv.org/pdf/1706.03762.pdf
+
     Arguments
     ----------
     d_model: int
@@ -62,7 +65,7 @@ class TransformerInterface(nn.Module):
         Activation module used within the Branchformer Encoder. E.g. Swish, ReLU etc. it has to be a torch Module.
     attention_type: str, optional
         Type of attention layer used in all Transformer or Conformer layers.
-        e.g. regularMHA or RelPosMHA.
+        e.g. SummaryMixing, regularMHA or RelPosMHA.
     max_length: int, optional
         Max length for the target and source sequence in input.
         Used for positional encodings.
@@ -86,6 +89,26 @@ class TransformerInterface(nn.Module):
     use_linear_after_conv: bool, optional
         If True, will apply a linear transformation of size input_size//2.
         -> Branchformer
+    local_proj_out_dim: int, optional
+        The dimension of the output of the local projection branch. This
+        will be concatenated with the output of the summary branch
+        (default: 512).
+    summary_hid_dim: list [int], optional
+        A list of dimension specifying both the number of hidden layers
+        as well as the size of them in the summary projection branch
+        (default: [1024]).
+    summary_out_dim: int, optional
+        The dimension of the output of the summary projection branch. This
+        will be concatenated with the output of the local branch
+        (default: 1024).
+    activation: torch.nn.Module, optional
+        Torch module specifying the activation function used in both the local
+        and summary branches.
+        (default: torch.nn.GELU)
+    mode: string, optional
+        One of "SummaryMixing" or "SummaryMixing-lite". Changes the SummaryMixing cell
+        according to the definition of the article. "SummaryMixing-lite" removes the
+        local project branch.
     """
 
     def __init__(
@@ -116,6 +139,11 @@ class TransformerInterface(nn.Module):
         csgu_linear_units: Optional[int] = 3072,
         gate_activation: Optional[nn.Module] = nn.Identity,
         use_linear_after_conv: Optional[bool] = False,
+        local_proj_hid_dim: Optional[list] = [512],
+        local_proj_out_dim: Optional[int] = 512,
+        summary_hid_dim: Optional[list] = [1024],
+        summary_out_dim: Optional[int] = 1024,
+        mode: Optional[str] = "SummaryMixing",
         output_hidden_states = False,
         layerdrop_prob = 0.0,
     ):
@@ -133,8 +161,8 @@ class TransformerInterface(nn.Module):
         assert attention_type in [
             "regularMHA",
             "RelPosMHAXL",
-            "RelPosMHAXLChunked",
             "hypermixing",
+            "SummaryMixing",
             "fastattention",
         ]
 
@@ -153,9 +181,7 @@ class TransformerInterface(nn.Module):
         # overrides any other pos_embedding
         if attention_type == "RelPosMHAXL":
             self.positional_encoding = RelPosEncXL(d_model)
-            self.positional_encoding_decoder = PositionalEncoding(
-                d_model, max_length
-            )
+            self.positional_encoding_decoder = PositionalEncoding(d_model, max_length)
 
         # initialize the encoder
         if num_encoder_layers > 0:
@@ -174,6 +200,11 @@ class TransformerInterface(nn.Module):
                     attention_type=self.attention_type,
                     kdim=self.encoder_kdim,
                     vdim=self.encoder_vdim,
+                    local_proj_hid_dim=local_proj_hid_dim,
+                    local_proj_out_dim=local_proj_out_dim,
+                    summary_hid_dim=summary_hid_dim,
+                    summary_out_dim=summary_out_dim,
+                    mode=mode,
                     output_hidden_states=self.output_hidden_states,
                     layerdrop_prob=self.layerdrop_prob,
                 )
@@ -240,14 +271,17 @@ class TransformerInterface(nn.Module):
 
 class PositionalEncoding(nn.Module):
     """This class implements the absolute sinusoidal positional encoding function.
+
     PE(pos, 2i)   = sin(pos/(10000^(2i/dmodel)))
     PE(pos, 2i+1) = cos(pos/(10000^(2i/dmodel)))
+
     Arguments
     ---------
     input_size: int
         Embedding dimension.
     max_len : int, optional
         Max length of the input sequences (default 2500).
+
     Example
     -------
     >>> a = torch.rand((8, 120, 512))
@@ -267,8 +301,7 @@ class PositionalEncoding(nn.Module):
         pe = torch.zeros(self.max_len, input_size, requires_grad=False)
         positions = torch.arange(0, self.max_len).unsqueeze(1).float()
         denominator = torch.exp(
-            torch.arange(0, input_size, 2).float()
-            * -(math.log(10000.0) / input_size)
+            torch.arange(0, input_size, 2).float() * -(math.log(10000.0) / input_size)
         )
 
         pe[:, 0::2] = torch.sin(positions * denominator)
@@ -290,7 +323,7 @@ class TransformerEncoderLayer(nn.Module):
     """This is an implementation of self-attention encoder layer.
     Arguments
     ----------
-    d_ffn: int, optional
+    d_ffn: int
         The dimension of the feedforward network model hidden layer.
     nhead: int
         The number of heads in the multi-head attention models (default=8).
@@ -310,7 +343,7 @@ class TransformerEncoderLayer(nn.Module):
         Defaults to True as this was shown to lead to better performance and training stability.
     attention_type: str, optional
         Type of attention layer used in all Transformer or Conformer layers.
-        e.g. regularMHA or RelPosMHA.
+        e.g. SummaryMixing, regularMHA or RelPosMHA.
     ffn_type: str
         type of ffn: regularFFN/1dcnn
     ffn_cnn_kernel_size_list: list of int
@@ -318,6 +351,10 @@ class TransformerEncoderLayer(nn.Module):
     causal: bool, optional
         Whether the encoder should be causal or not (the decoder is always causal).
         If causal the Conformer convolutional layer is causal.
+    mode: string, optional
+        One of "SummaryMixing" or "SummaryMixing-lite". Changes the SummaryMixing cell
+        according to the definition of the article. "SummaryMixing-lite" removes the
+        local project branch.
     Example
     -------
     >>> import torch
@@ -338,20 +375,21 @@ class TransformerEncoderLayer(nn.Module):
         dropout=0.0,
         activation=nn.ReLU,
         normalize_before=False,
-        attention_type="regularMHA",
         ffn_type="regularFFN",
         ffn_cnn_kernel_size_list=[3, 3],
+        attention_type="regularMHA",
         causal=False,
+        local_proj_hid_dim=[512],
+        local_proj_out_dim=512,
+        summary_hid_dim=[1024],
+        summary_out_dim=1024,
+        mode="SummaryMixing",
     ):
         super().__init__()
-
+        self.attention_type = attention_type
         if attention_type == "regularMHA":
             self.self_att = sb.nnet.attention.MultiheadAttention(
-                nhead=nhead,
-                d_model=d_model,
-                dropout=dropout,
-                kdim=kdim,
-                vdim=vdim,
+                nhead=nhead, d_model=d_model, dropout=dropout, kdim=kdim, vdim=vdim,
             )
 
         elif attention_type == "RelPosMHAXL":
@@ -370,13 +408,20 @@ class TransformerEncoderLayer(nn.Module):
             self.self_att = sb.nnet.attention.Fastattention(
                 d_model, nhead, dropout
             )
+        elif attention_type == "SummaryMixing":
+            self.self_att = SummaryMixing(
+                enc_dim=d_model,
+                local_proj_hid_dim=local_proj_hid_dim,
+                local_proj_out_dim=local_proj_out_dim,
+                summary_hid_dim=summary_hid_dim,
+                summary_out_dim=summary_out_dim,
+                activation=activation,
+                mode=mode,
+            )
 
         if ffn_type == "regularFFN":
             self.pos_ffn = sb.nnet.attention.PositionalwiseFeedForward(
-                d_ffn=d_ffn,
-                input_size=d_model,
-                dropout=dropout,
-                activation=activation,
+                d_ffn=d_ffn, input_size=d_model, dropout=dropout, activation=activation,
             )
         elif ffn_type == "1dcnn":
             self.pos_ffn = nn.Sequential(
@@ -426,14 +471,18 @@ class TransformerEncoderLayer(nn.Module):
         else:
             src1 = src
 
-        output, self_attn = self.self_att(
-            src1,
-            src1,
-            src1,
-            attn_mask=src_mask,
-            key_padding_mask=src_key_padding_mask,
-            pos_embs=pos_embs,
-        )
+        if self.attention_type == "SummaryMixing":
+            output = self.self_att(src1, attention_mask=src_key_padding_mask)
+            self_attn = None
+        else:
+            output, self_attn = self.self_att(
+                src1,
+                src1,
+                src1,
+                attn_mask=src_mask,
+                key_padding_mask=src_key_padding_mask,
+                pos_embs=pos_embs,
+            )
 
         # add & norm
         src = src + self.dropout1(output)
@@ -487,11 +536,16 @@ class TransformerEncoder(nn.Module):
         The probability to drop an entire layer
     attention_type: str, optional
         Type of attention layer used in all Transformer or Conformer layers.
-        e.g. regularMHA or RelPosMHA.
+        e.g. SummaryMixing, regularMHA or RelPosMHA.
     ffn_type: str
         type of ffn: regularFFN/1dcnn
     ffn_cnn_kernel_size_list: list of int
         conv kernel size of 2 1d-convs if ffn_type is 1dcnn
+    mode: string, optional
+        One of "SummaryMixing" or "SummaryMixing-lite". Changes the SummaryMixing cell
+        according to the definition of the article. "SummaryMixing-lite" removes the
+        local project branch.
+
     Example
     -------
     >>> import torch
@@ -519,6 +573,11 @@ class TransformerEncoder(nn.Module):
         attention_type="regularMHA",
         ffn_type="regularFFN",
         ffn_cnn_kernel_size_list=[3, 3],
+        local_proj_hid_dim=[512],
+        local_proj_out_dim=512,
+        summary_hid_dim=[1024],
+        summary_out_dim=1024,
+        mode="SummaryMixing",
         output_hidden_states = False
     ):
         super().__init__()
@@ -538,6 +597,11 @@ class TransformerEncoder(nn.Module):
                     attention_type=attention_type,
                     ffn_type=ffn_type,
                     ffn_cnn_kernel_size_list=ffn_cnn_kernel_size_list,
+                    local_proj_hid_dim=local_proj_hid_dim,
+                    local_proj_out_dim=local_proj_out_dim,
+                    summary_hid_dim=summary_hid_dim,
+                    summary_out_dim=summary_out_dim,
+                    mode=mode,
                 )
                 for i in range(num_layers)
             ]
@@ -645,18 +709,10 @@ class TransformerDecoderLayer(nn.Module):
 
         if attention_type == "regularMHA":
             self.self_attn = sb.nnet.attention.MultiheadAttention(
-                nhead=nhead,
-                d_model=d_model,
-                kdim=kdim,
-                vdim=vdim,
-                dropout=dropout,
+                nhead=nhead, d_model=d_model, kdim=kdim, vdim=vdim, dropout=dropout,
             )
             self.mutihead_attn = sb.nnet.attention.MultiheadAttention(
-                nhead=nhead,
-                d_model=d_model,
-                kdim=kdim,
-                vdim=vdim,
-                dropout=dropout,
+                nhead=nhead, d_model=d_model, kdim=kdim, vdim=vdim, dropout=dropout,
             )
 
         elif attention_type == "RelPosMHAXL":
@@ -668,10 +724,7 @@ class TransformerDecoderLayer(nn.Module):
             )
 
         self.pos_ffn = sb.nnet.attention.PositionalwiseFeedForward(
-            d_ffn=d_ffn,
-            input_size=d_model,
-            dropout=dropout,
-            activation=activation,
+            d_ffn=d_ffn, input_size=d_model, dropout=dropout, activation=activation,
         )
 
         # normalization layers

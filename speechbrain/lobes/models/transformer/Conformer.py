@@ -21,13 +21,13 @@ from speechbrain.nnet.attention import (
     RelPosMHAXL,
     MultiheadAttention,
     PositionalwiseFeedForward,
-    RelPosMHAXLChunked,
 )
 from speechbrain.utils.dynamic_chunk_training import DynChunkTrainConfig
 from speechbrain.nnet.hypermixing import HyperMixing
 from speechbrain.nnet.attention import Fastattention
 from speechbrain.nnet.normalization import LayerNorm
 from speechbrain.nnet.activations import Swish
+from speechbrain.nnet.summary_mixing import SummaryMixing
 
 
 @dataclass
@@ -123,9 +123,7 @@ class ConvolutionModule(nn.Module):
         self.layer_norm = nn.LayerNorm(input_size)
         self.bottleneck = nn.Sequential(
             # pointwise
-            nn.Conv1d(
-                input_size, 2 * input_size, kernel_size=1, stride=1, bias=bias
-            ),
+            nn.Conv1d(input_size, 2 * input_size, kernel_size=1, stride=1, bias=bias),
             nn.GLU(dim=1),
         )
         # depthwise
@@ -347,6 +345,18 @@ class ConformerEncoderLayer(nn.Module):
         Whether the convolutions should be causal or not.
     attention_type: str, optional
         type of attention layer, e.g. regulaMHA for regular MultiHeadAttention.
+    local_proj_out_dim: int, optional
+        The dimension of the output of the local projection branch. This
+        will be concatenated with the output of the summary branch
+        (default: 512).
+    summary_hid_dim: list [int], optional
+        A list of dimension specifying both the number of hidden layers
+        as well as the size of them in the summary projection branch
+        (default: [1024]).
+    mode: string, optional
+        One of "SummaryMixing" or "SummaryMixing-lite". Changes the SummaryMixing cell
+        according to the definition of the article. "SummaryMixing-lite" removes the
+        local project branch.
 
     Example
     -------
@@ -372,16 +382,19 @@ class ConformerEncoderLayer(nn.Module):
         dropout=0.0,
         causal=False,
         attention_type="RelPosMHAXL",
+        local_proj_hid_dim=[512],
+        local_proj_out_dim=512,
+        summary_hid_dim=[1024],
+        mode="SummaryMixing",
     ):
         super().__init__()
 
+        self.attention_type = attention_type
+        self.mode = mode
+
         if attention_type == "regularMHA":
             self.mha_layer = MultiheadAttention(
-                nhead=nhead,
-                d_model=d_model,
-                dropout=dropout,
-                kdim=kdim,
-                vdim=vdim,
+                nhead=nhead, d_model=d_model, dropout=dropout, kdim=kdim, vdim=vdim,
             )
         elif attention_type == "RelPosMHAXL":
             # transformerXL style positional encoding
@@ -405,12 +418,16 @@ class ConformerEncoderLayer(nn.Module):
                 nhead=nhead,
                 dropout=dropout,
             )
-        elif attention_type == "RelPosMHAXLChunked":
-            self.mha_layer = RelPosMHAXLChunked(
-                num_heads=nhead,
-                embed_dim=d_model,
-                dropout=dropout,
-                mask_pos_future=causal,
+        elif attention_type == "SummaryMixing":
+            self.mha_layer = SummaryMixing(
+                enc_dim=d_model,
+                nhead=nhead,
+                local_proj_hid_dim=local_proj_hid_dim,
+                local_proj_out_dim=local_proj_out_dim,
+                summary_hid_dim=summary_hid_dim,
+                summary_out_dim=d_model,
+                activation=activation,
+                mode=mode,
             )
 
         self.convolution_module = ConvolutionModule(
@@ -420,10 +437,7 @@ class ConformerEncoderLayer(nn.Module):
         self.ffn_module1 = nn.Sequential(
             nn.LayerNorm(d_model),
             PositionalwiseFeedForward(
-                d_ffn=d_ffn,
-                input_size=d_model,
-                dropout=dropout,
-                activation=activation,
+                d_ffn=d_ffn, input_size=d_model, dropout=dropout, activation=activation,
             ),
             nn.Dropout(dropout),
         )
@@ -431,10 +445,7 @@ class ConformerEncoderLayer(nn.Module):
         self.ffn_module2 = nn.Sequential(
             nn.LayerNorm(d_model),
             PositionalwiseFeedForward(
-                d_ffn=d_ffn,
-                input_size=d_model,
-                dropout=dropout,
-                activation=activation,
+                d_ffn=d_ffn, input_size=d_model, dropout=dropout, activation=activation,
             ),
             nn.Dropout(dropout),
         )
@@ -476,14 +487,19 @@ class ConformerEncoderLayer(nn.Module):
         skip = x
         x = self.norm1(x)
 
-        x, self_attn = self.mha_layer(
-            x,
-            x,
-            x,
-            attn_mask=src_mask,
-            key_padding_mask=src_key_padding_mask,
-            pos_embs=pos_embs,
-        )
+        if self.attention_type == "SummaryMixing":
+            x = self.mha_layer(x, attention_mask=src_key_padding_mask)
+            self_attn = None
+        else:
+            x, self_attn = self.mha_layer(
+                x,
+                x,
+                x,
+                attn_mask=src_mask,
+                key_padding_mask=src_key_padding_mask,
+                pos_embs=pos_embs,
+            )
+
         x = x + skip
         # convolution module
         x = x + self.convolution_module(
@@ -532,17 +548,17 @@ class ConformerEncoderLayer(nn.Module):
 
         # compute new MHA left context for the next call to our function
         if context.mha_left_context_size > 0:
-            context.mha_left_context = x[
-                ..., -context.mha_left_context_size :, :
-            ]
+            context.mha_left_context = x[..., -context.mha_left_context_size :, :]
 
         # multi-head attention module
         skip = x
         x = self.norm1(x)
-
-        x, self_attn = self.mha_layer(
-            x, x, x, attn_mask=None, key_padding_mask=None, pos_embs=pos_embs,
-        )
+        if self.attention_type == "SummaryMixing":
+            x = self.mha_layer(x, attention_mask=None)
+        else:
+            x, self_attn = self.mha_layer(
+                x, x, x, attn_mask=None, key_padding_mask=None, pos_embs=pos_embs,
+            )
         x = x + skip
 
         # truncate outputs corresponding to the MHA left context (we only care
@@ -553,9 +569,7 @@ class ConformerEncoderLayer(nn.Module):
             x = torch.cat((context.dcconv_left_context, x), dim=1)
 
         # compute new DCConv left context for the next call to our function
-        context.dcconv_left_context = x[
-            ..., -self.convolution_module.padding :, :
-        ]
+        context.dcconv_left_context = x[..., -self.convolution_module.padding :, :]
 
         # convolution module
         x = x + self.convolution_module(x)
@@ -610,6 +624,18 @@ class ConformerEncoder(nn.Module):
         Whether the convolutions should be causal or not.
     attention_type: str, optional
         type of attention layer, e.g. regulaMHA for regular MultiHeadAttention.
+    local_proj_out_dim: int, optional
+        The dimension of the output of the local projection branch. This
+        will be concatenated with the output of the summary branch
+        (default: 512).
+    summary_hid_dim: list [int], optional
+        A list of dimension specifying both the number of hidden layers
+        as well as the size of them in the summary projection branch
+        (default: [1024]).
+    mode: string, optional
+        One of "SummaryMixing" or "SummaryMixing-lite". Changes the SummaryMixing cell
+        according to the definition of the article. "SummaryMixing-lite" removes the
+        local project branch.
     output_hidden_states: bool, optional
         Whether the model should output the hidden states.
     layerdrop_prob: float
@@ -642,7 +668,6 @@ class ConformerEncoder(nn.Module):
     # output.shape
     torch.Size([8, 60, 512])
     """
-    torch.Size([8, 60, 512])
 
     def __init__(
         self,
@@ -658,6 +683,10 @@ class ConformerEncoder(nn.Module):
         dropout=0.0,
         causal=False,
         attention_type="RelPosMHAXL",
+        local_proj_hid_dim=[512],
+        local_proj_out_dim=512,
+        summary_hid_dim=[1024],
+        mode="SummaryMixing",
         output_hidden_states=False,
         layerdrop_prob=0.0,
     ):
@@ -677,6 +706,10 @@ class ConformerEncoder(nn.Module):
                     bias=bias,
                     causal=causal,
                     attention_type=attention_type,
+                    local_proj_hid_dim=local_proj_hid_dim,
+                    local_proj_out_dim=local_proj_out_dim,
+                    summary_hid_dim=summary_hid_dim,
+                    mode=mode,
                 )
                 for i in range(num_layers)
             ]
@@ -742,6 +775,7 @@ class ConformerEncoder(nn.Module):
                     src_mask=src_mask,
                     src_key_padding_mask=src_key_padding_mask,
                     pos_embs=pos_embs,
+                    dynchunktrain_config=dynchunktrain_config,
                 )
                 attention_lst.append(attention)
 
@@ -874,11 +908,7 @@ class ConformerDecoderLayer(nn.Module):
 
         if attention_type == "regularMHA":
             self.mha_layer = MultiheadAttention(
-                nhead=nhead,
-                d_model=d_model,
-                dropout=dropout,
-                kdim=kdim,
-                vdim=vdim,
+                nhead=nhead, d_model=d_model, dropout=dropout, kdim=kdim, vdim=vdim,
             )
         elif attention_type == "RelPosMHAXL":
             # transformerXL style positional encoding
@@ -896,10 +926,7 @@ class ConformerDecoderLayer(nn.Module):
         self.ffn_module1 = nn.Sequential(
             nn.LayerNorm(d_model),
             PositionalwiseFeedForward(
-                d_ffn=d_ffn,
-                input_size=d_model,
-                dropout=dropout,
-                activation=activation,
+                d_ffn=d_ffn, input_size=d_model, dropout=dropout, activation=activation,
             ),
             nn.Dropout(dropout),
         )
@@ -907,10 +934,7 @@ class ConformerDecoderLayer(nn.Module):
         self.ffn_module2 = nn.Sequential(
             nn.LayerNorm(d_model),
             PositionalwiseFeedForward(
-                d_ffn=d_ffn,
-                input_size=d_model,
-                dropout=dropout,
-                activation=activation,
+                d_ffn=d_ffn, input_size=d_model, dropout=dropout, activation=activation,
             ),
             nn.Dropout(dropout),
         )
