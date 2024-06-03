@@ -144,7 +144,7 @@ class BranchformerEncoderLayer(nn.Module):
         csgu_linear_units=3072,
         gate_activation=nn.Identity,
         use_linear_after_conv=False,
-        **kwargs,
+        bidirectional=False,
     ):
         super().__init__()
 
@@ -183,8 +183,7 @@ class BranchformerEncoderLayer(nn.Module):
             self.mha_layer = sb.nnet.attention.MambaBlock(
                 d_model,
                 n_layer=1,
-                bidirectional=kwargs.get("bidirectional", False),
-                bidirectional_strategy=kwargs.get("bidirectional_strategy", False),
+                bidirectional=bidirectional,
             )
             
         self.convolution_branch = ConvolutionBranch(

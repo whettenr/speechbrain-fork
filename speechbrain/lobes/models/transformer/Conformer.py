@@ -372,7 +372,7 @@ class ConformerEncoderLayer(nn.Module):
         dropout=0.0,
         causal=False,
         attention_type="RelPosMHAXL",
-        **kwargs,
+        bidirectional=False,
     ):
         super().__init__()
 
@@ -419,8 +419,7 @@ class ConformerEncoderLayer(nn.Module):
             self.mha_layer = sb.nnet.attention.MambaBlock(
                 d_model,
                 n_layer=1,
-                bidirectional=kwargs.get("bidirectional", False),
-                bidirectional_strategy=kwargs.get("bidirectional_strategy", False),
+                bidirectional=bidirectional,
             )
 
         self.convolution_module = ConvolutionModule(

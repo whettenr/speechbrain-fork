@@ -263,6 +263,7 @@ class TransformerASR(TransformerInterface):
         use_linear_after_conv: Optional[bool] = False,        
         output_hidden_states = False,
         layerdrop_prob=0.0,
+        bidirectional=False,
     ):
         super().__init__(
             d_model=d_model,
@@ -287,6 +288,7 @@ class TransformerASR(TransformerInterface):
             use_linear_after_conv=use_linear_after_conv,
             output_hidden_states=output_hidden_states,
             layerdrop_prob=layerdrop_prob,
+            bidirectional=bidirectional,
         )
 
         self.custom_src_module = ModuleList(
