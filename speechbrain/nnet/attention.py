@@ -19,6 +19,104 @@ import math
 
 logger = logging.getLogger(__name__)
 
+class MambaWrapper(nn.Module):
+    """Thin wrapper around Mamba to support bi-directionality.
+    
+    Ref code: https://github.com/state-spaces/mamba/pull/52
+    """
+    def __init__(
+        self,
+        d_model: int,
+        bidirectional: bool = False,
+        bidirectional_strategy: Optional[str] = None,
+        **mamba_kwargs,
+    ):
+        super().__init__()
+
+        from functools import partial
+        from mamba_ssm.modules.mamba_simple import Mamba, Block
+        from mamba_ssm.models.mixer_seq_simple import _init_weights
+        from mamba_ssm.ops.triton.layernorm import RMSNorm
+
+        if bidirectional and bidirectional_strategy is None:
+            bidirectional_strategy = "add"  # Default strategy: `add`
+        if bidirectional and bidirectional_strategy not in ["add", "ew_multiply"]:
+            raise NotImplementedError(f"`{bidirectional_strategy}` strategy for bi-directionality is not implemented!")
+        self.bidirectional = bidirectional
+        self.bidirectional_strategy = bidirectional_strategy
+        self.mamba_fwd = Mamba(
+            d_model=d_model,
+            **mamba_kwargs
+        )
+        if bidirectional:
+            self.mamba_rev = Mamba(
+                d_model=d_model,
+                **mamba_kwargs
+            )
+        else:
+            self.mamba_rev = None
+
+    def forward(self, hidden_states, inference_params=None):
+        """Bidirectional-enabled forward pass
+        hidden_states: (B, L, D)
+        Returns: same shape as hidden_states
+        """
+        out = self.mamba_fwd(hidden_states, inference_params=inference_params)
+        if self.bidirectional:
+            out_rev = self.mamba_rev(
+                hidden_states.flip(dims=(1,)),  # Flip along the sequence length dimension
+                inference_params=inference_params
+            ).flip(dims=(1,))  # Flip back for combining with forward hidden states
+            if self.bidirectional_strategy == "add":
+                out = out + out_rev
+            elif self.bidirectional_strategy == "ew_multiply":
+                out = out * out_rev
+        return out
+
+class MambaBlock(nn.Module):
+    def __init__(self, in_channels, n_layer=1, bidirectional=False, bidirectional_strategy=None):
+        super().__init__()
+
+        from functools import partial
+        from mamba_ssm.modules.mamba_simple import Mamba, Block
+        from mamba_ssm.models.mixer_seq_simple import _init_weights
+        from mamba_ssm.ops.triton.layernorm import RMSNorm
+
+        self.forward_blocks = nn.ModuleList([])
+
+        bidirectional_kwargs = {
+            "bidirectional": bidirectional,
+            "bidirectional_strategy": bidirectional_strategy,
+        }
+        for i in range(n_layer):
+            self.forward_blocks.append(
+                Block(
+                    in_channels,
+                    mixer_cls=partial(MambaWrapper, layer_idx=i, d_state=16, d_conv=4, expand=2, **bidirectional_kwargs),
+                    norm_cls=partial(RMSNorm, eps=1e-5),
+                    fused_add_norm=False,
+                )
+            )
+        self.apply(partial(_init_weights, n_layer=n_layer))
+
+    def forward(
+        self, 
+        query,
+        key,
+        value,
+        attn_mask: Optional[torch.Tensor] = None,
+        key_padding_mask: Optional[torch.Tensor] = None,
+        return_attn_weights: Optional[bool] = True,
+        pos_embs: Optional[torch.Tensor] = None,
+    ):      
+        for_residual = None
+        forward_f = query
+        for block in self.forward_blocks:
+            forward_f, for_residual = block(forward_f, for_residual, inference_params=None)
+        residual = (forward_f + for_residual) if for_residual is not None else forward_f
+
+        return residual, None
+
 
 class ContentBasedAttention(nn.Module):
     """ This class implements content-based attention module for seq2seq

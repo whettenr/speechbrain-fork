@@ -412,7 +412,13 @@ class ConformerEncoderLayer(nn.Module):
                 dropout=dropout,
                 mask_pos_future=causal,
             )
-
+        elif attention_type == "mamba":
+            import speechbrain as sb
+            self.mha_layer = sb.nnet.attention.MambaBlock(
+                d_model,
+                n_layer=1,
+            )
+            
         self.convolution_module = ConvolutionModule(
             d_model, kernel_size, bias, activation, dropout, causal=causal
         )
