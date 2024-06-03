@@ -144,6 +144,7 @@ class BranchformerEncoderLayer(nn.Module):
         csgu_linear_units=3072,
         gate_activation=nn.Identity,
         use_linear_after_conv=False,
+        **kwargs,
     ):
         super().__init__()
 
@@ -182,6 +183,8 @@ class BranchformerEncoderLayer(nn.Module):
             self.mha_layer = sb.nnet.attention.MambaBlock(
                 d_model,
                 n_layer=1,
+                bidirectional=kwargs.get("bidirectional", False),
+                bidirectional_strategy=kwargs.get("bidirectional_strategy", False),
             )
             
         self.convolution_branch = ConvolutionBranch(
@@ -307,6 +310,7 @@ class BranchformerEncoder(nn.Module):
         use_linear_after_conv=False,
         output_hidden_states=False,
         layerdrop_prob=0.0,
+        **kwargs,
     ):
         super().__init__()
 
@@ -324,6 +328,7 @@ class BranchformerEncoder(nn.Module):
                     csgu_linear_units=csgu_linear_units,
                     gate_activation=gate_activation,
                     use_linear_after_conv=use_linear_after_conv,
+                    **kwargs,
                 )
                 for i in range(num_layers)
             ]

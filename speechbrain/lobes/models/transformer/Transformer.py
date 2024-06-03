@@ -118,6 +118,7 @@ class TransformerInterface(nn.Module):
         use_linear_after_conv: Optional[bool] = False,
         output_hidden_states = False,
         layerdrop_prob = 0.0,
+        **kwargs,
     ):
         super().__init__()
         self.causal = causal
@@ -191,6 +192,7 @@ class TransformerInterface(nn.Module):
                     attention_type=self.attention_type,
                     output_hidden_states=self.output_hidden_states,
                     layerdrop_prob=self.layerdrop_prob,
+                    **kwargs,
                 )
                 assert (
                     normalize_before
@@ -213,6 +215,7 @@ class TransformerInterface(nn.Module):
                     use_linear_after_conv=use_linear_after_conv,
                     output_hidden_states=self.output_hidden_states,
                     layerdrop_prob=self.layerdrop_prob,
+                    **kwargs,
                 )
 
         # initialize the decoder

@@ -372,6 +372,7 @@ class ConformerEncoderLayer(nn.Module):
         dropout=0.0,
         causal=False,
         attention_type="RelPosMHAXL",
+        **kwargs,
     ):
         super().__init__()
 
@@ -414,11 +415,14 @@ class ConformerEncoderLayer(nn.Module):
             )
         elif attention_type == "mamba":
             import speechbrain as sb
+            # if bidirectional and bidirectional_strategy in kwargs:
             self.mha_layer = sb.nnet.attention.MambaBlock(
                 d_model,
                 n_layer=1,
+                bidirectional=kwargs.get("bidirectional", False),
+                bidirectional_strategy=kwargs.get("bidirectional_strategy", False),
             )
-            
+
         self.convolution_module = ConvolutionModule(
             d_model, kernel_size, bias, activation, dropout, causal=causal
         )
@@ -666,6 +670,7 @@ class ConformerEncoder(nn.Module):
         attention_type="RelPosMHAXL",
         output_hidden_states=False,
         layerdrop_prob=0.0,
+        **kwargs,
     ):
         super().__init__()
 
@@ -683,6 +688,7 @@ class ConformerEncoder(nn.Module):
                     bias=bias,
                     causal=causal,
                     attention_type=attention_type,
+                    **kwargs,
                 )
                 for i in range(num_layers)
             ]
