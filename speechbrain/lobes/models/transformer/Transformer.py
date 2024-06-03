@@ -137,6 +137,7 @@ class TransformerInterface(nn.Module):
             "RelPosMHAXLChunked",
             "hypermixing",
             "fastattention",
+            "mamba",
         ]
 
         assert positional_encoding in ["fixed_abs_sine", None]
