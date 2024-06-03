@@ -669,7 +669,7 @@ class ConformerEncoder(nn.Module):
         attention_type="RelPosMHAXL",
         output_hidden_states=False,
         layerdrop_prob=0.0,
-        **kwargs,
+        bidirectional=False,
     ):
         super().__init__()
 
@@ -687,7 +687,7 @@ class ConformerEncoder(nn.Module):
                     bias=bias,
                     causal=causal,
                     attention_type=attention_type,
-                    **kwargs,
+                    bidirectional=bidirectional,
                 )
                 for i in range(num_layers)
             ]

@@ -309,7 +309,7 @@ class BranchformerEncoder(nn.Module):
         use_linear_after_conv=False,
         output_hidden_states=False,
         layerdrop_prob=0.0,
-        **kwargs,
+        bidirectional=False,
     ):
         super().__init__()
 
@@ -327,7 +327,7 @@ class BranchformerEncoder(nn.Module):
                     csgu_linear_units=csgu_linear_units,
                     gate_activation=gate_activation,
                     use_linear_after_conv=use_linear_after_conv,
-                    **kwargs,
+                    bidirectional=bidirectional,
                 )
                 for i in range(num_layers)
             ]
