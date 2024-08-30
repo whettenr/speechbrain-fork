@@ -762,8 +762,11 @@ class ConformerEncoder(nn.Module):
         attention_lst = []
         if self.output_hidden_states:
             hidden_state_lst = [output]
+        
+        growth_stage = 1
+        growth_layers = self.layers[:growth_stage] + l[-growth_stage:]
 
-        for i, enc_layer in enumerate(self.layers):
+        for i, enc_layer in enumerate(growth_layers):
             if (
                 not self.training
                 or self.layerdrop_prob == 0.0
