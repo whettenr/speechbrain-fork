@@ -9,8 +9,9 @@ Authors:
 - Mirco Ravanelli (2023)
 """
 
-import torch
 import random
+
+import torch
 
 
 class SpectrogramDrop(torch.nn.Module):
@@ -144,6 +145,10 @@ class SpectrogramDrop(torch.nn.Module):
             size=(1,),
             device=spectrogram.device,
         )
+
+        # If the number of chunks to drop is 0, return the spectrogram unchanged
+        if n_masks == 0:
+            return spectrogram
 
         # Randomly sample the lengths of the chunks to drop
         mask_len = torch.randint(
@@ -331,7 +336,7 @@ class RandomShift(torch.nn.Module):
     Arguments
     ---------
     min_shift : int
-        The mininum channel shift.
+        The minimum channel shift.
     max_shift : int
         The maximum channel shift.
     dim: int
@@ -343,15 +348,15 @@ class RandomShift(torch.nn.Module):
     >>> signal = torch.zeros(4, 100, 80)
     >>> signal[0,50,:] = 1
     >>> rand_shift =  RandomShift(dim=1, min_shift=-10, max_shift=10)
-    >>> lenghts = torch.tensor([0.2, 0.8, 0.9,1.0])
-    >>> output_signal, lenghts = rand_shift(signal,lenghts)
+    >>> lengths = torch.tensor([0.2, 0.8, 0.9,1.0])
+    >>> output_signal, lengths = rand_shift(signal,lengths)
 
     >>> # frequency shift
     >>> signal = torch.zeros(4, 100, 80)
     >>> signal[0,:,40] = 1
     >>> rand_shift =  RandomShift(dim=2, min_shift=-10, max_shift=10)
-    >>> lenghts = torch.tensor([0.2, 0.8, 0.9,1.0])
-    >>> output_signal, lenghts = rand_shift(signal,lenghts)
+    >>> lengths = torch.tensor([0.2, 0.8, 0.9,1.0])
+    >>> output_signal, lengths = rand_shift(signal,lengths)
     """
 
     def __init__(self, min_shift=0, max_shift=0, dim=1):
@@ -386,7 +391,7 @@ class RandomShift(torch.nn.Module):
         )
         waveforms = torch.roll(waveforms, shifts=N_shifts.item(), dims=self.dim)
 
-        # Update lenghts in the case of temporal shift.
+        # Update lengths in the case of temporal shift.
         if self.dim == 1:
             lengths = lengths + N_shifts / waveforms.shape[self.dim]
             lengths = torch.clamp(lengths, min=0.0, max=1.0)

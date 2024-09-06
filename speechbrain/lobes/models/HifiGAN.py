@@ -2,7 +2,7 @@
 Neural network modules for the HiFi-GAN: Generative Adversarial Networks for
 Efficient and High Fidelity Speech Synthesis
 
-For more details: https://arxiv.org/pdf/2010.05646.pdf
+For more details: https://arxiv.org/pdf/2010.05646.pdf, https://arxiv.org/abs/2406.10735
 
 Authors
  * Jarod Duret 2021
@@ -33,11 +33,12 @@ Authors
 # SOFTWARE.
 
 import torch
-import torch.nn.functional as F
 import torch.nn as nn
-import speechbrain as sb
-from speechbrain.nnet.CNN import Conv1d, ConvTranspose1d, Conv2d
+import torch.nn.functional as F
 from torchaudio import transforms
+
+import speechbrain as sb
+from speechbrain.nnet.CNN import Conv1d, Conv2d, ConvTranspose1d
 
 LRELU_SLOPE = 0.1
 
@@ -287,10 +288,10 @@ class ResBlock1(torch.nn.Module):
 
     def remove_weight_norm(self):
         """This functions removes weight normalization during inference."""
-        for l in self.convs1:
-            l.remove_weight_norm()
-        for l in self.convs2:
-            l.remove_weight_norm()
+        for layer in self.convs1:
+            layer.remove_weight_norm()
+        for layer in self.convs2:
+            layer.remove_weight_norm()
 
 
 class ResBlock2(torch.nn.Module):
@@ -351,8 +352,8 @@ class ResBlock2(torch.nn.Module):
 
     def remove_weight_norm(self):
         """This functions removes weight normalization during inference."""
-        for l in self.convs:
-            l.remove_weight_norm()
+        for layer in self.convs:
+            layer.remove_weight_norm()
 
 
 class HifiganGenerator(torch.nn.Module):
@@ -434,7 +435,7 @@ class HifiganGenerator(torch.nn.Module):
         ):
             self.ups.append(
                 ConvTranspose1d(
-                    in_channels=upsample_initial_channel // (2 ** i),
+                    in_channels=upsample_initial_channel // (2**i),
                     out_channels=upsample_initial_channel // (2 ** (i + 1)),
                     kernel_size=k,
                     stride=u,
@@ -500,10 +501,10 @@ class HifiganGenerator(torch.nn.Module):
     def remove_weight_norm(self):
         """This functions removes weight normalization during inference."""
 
-        for l in self.ups:
-            l.remove_weight_norm()
-        for l in self.resblocks:
-            l.remove_weight_norm()
+        for layer in self.ups:
+            layer.remove_weight_norm()
+        for layer in self.resblocks:
+            layer.remove_weight_norm()
         self.conv_pre.remove_weight_norm()
         self.conv_post.remove_weight_norm()
 
@@ -599,7 +600,9 @@ class VariancePredictor(nn.Module):
 
 
 class UnitHifiganGenerator(HifiganGenerator):
-    """Unit HiFiGAN Generator with Multi-Receptive Field Fusion (MRF)
+    """The UnitHiFiGAN generator takes discrete speech tokens as input.
+    The generator is adapted to support bitrate scalability training.
+    For more details, refer to: https://arxiv.org/abs/2406.10735.
 
     Arguments
     ---------
@@ -622,7 +625,7 @@ class UnitHifiganGenerator(HifiganGenerator):
         upsampling factors (stride) for each upsampling layer.
     inference_padding : int
         constant padding applied to the input at inference time. Defaults to 5.
-    num_embeddings : int
+    vocab_size : int
         size of the dictionary of embeddings.
     embedding_dim : int
         size of each embedding vector.
@@ -634,10 +637,19 @@ class UnitHifiganGenerator(HifiganGenerator):
         size of the convolution filter in each layer of the duration predictor.
     var_pred_dropout : float
         dropout probability of each layer in the duration predictor.
+    multi_speaker : bool
+        enable multi speaker training.
+    normalize_speaker_embeddings: bool
+        enable normalization of speaker embeddings.
+    skip_token_embedding: bool
+        Whether to skip the embedding layer in the case of continuous input.
+    pooling_type: str, optional
+        The type of pooling to use. Must be one of ["attention", "sum", "none"].
+        Defaults to "attention" for scalable vocoder.
 
     Example
     -------
-    >>> inp_tensor = torch.randint(0, 100, (4, 10))
+    >>> inp_tensor = torch.randint(0, 100, (4, 10, 1))
     >>> unit_hifigan_generator= UnitHifiganGenerator(
     ...    in_channels = 128,
     ...    out_channels = 1,
@@ -647,7 +659,7 @@ class UnitHifiganGenerator(HifiganGenerator):
     ...    upsample_kernel_sizes = [11, 8, 8, 4, 4],
     ...    upsample_initial_channel = 512,
     ...    upsample_factors = [5, 4, 4, 2, 2],
-    ...    num_embeddings = 100,
+    ...    vocab_size = 100,
     ...    embedding_dim = 128,
     ...    duration_predictor = True,
     ...    var_pred_hidden_dim = 128,
@@ -672,12 +684,17 @@ class UnitHifiganGenerator(HifiganGenerator):
         inference_padding=5,
         cond_channels=0,
         conv_post_bias=True,
-        num_embeddings=100,
+        vocab_size=100,
         embedding_dim=128,
+        attn_dim=128,
         duration_predictor=False,
         var_pred_hidden_dim=128,
         var_pred_kernel_size=3,
         var_pred_dropout=0.5,
+        multi_speaker=False,
+        normalize_speaker_embeddings=False,
+        skip_token_embedding=False,
+        pooling_type="attention",
     ):
         super().__init__(
             in_channels,
@@ -692,7 +709,15 @@ class UnitHifiganGenerator(HifiganGenerator):
             cond_channels,
             conv_post_bias,
         )
-        self.unit_embedding = torch.nn.Embedding(num_embeddings, embedding_dim)
+        self.unit_embedding = torch.nn.Embedding(vocab_size, embedding_dim)
+        self.pooling_type = pooling_type
+        if pooling_type == "attention":
+            self.attn_pooling = torch.nn.Sequential(
+                torch.nn.Linear(embedding_dim, attn_dim),
+                torch.nn.ReLU(),
+                torch.nn.Linear(attn_dim, 1, bias=False),
+            )
+
         self.duration_predictor = duration_predictor
         if duration_predictor:
             self.var_predictor = VariancePredictor(
@@ -701,17 +726,49 @@ class UnitHifiganGenerator(HifiganGenerator):
                 var_pred_kernel_size,
                 var_pred_dropout,
             )
+        self.multi_speaker = multi_speaker
+        self.normalize_speaker_embeddings = normalize_speaker_embeddings
+        self.skip_token_embedding = skip_token_embedding
 
-    def forward(self, x, g=None):
+    @staticmethod
+    def _upsample(x, max_frames):
+        """
+        Upsamples the input tensor to match the specified max_frames.
+        """
+        batch, hidden_dim, cond_length = x.size()
+        x = x.unsqueeze(3).repeat(1, 1, 1, max_frames // cond_length)
+        x = x.view(batch, hidden_dim, max_frames)
+        return x
+
+    def forward(self, x, g=None, spk=None):
         """
         Arguments
         ---------
-        x : torch.Tensor (batch, time)
+        x : torch.Tensor (batch, time, channel)
             feature input tensor.
         g : torch.Tensor (batch, 1, time)
             global conditioning input tensor.
         """
-        u = self.unit_embedding(x).transpose(1, 2)
+        if self.skip_token_embedding:
+            u = x
+        else:
+            u = self.unit_embedding(x)
+
+        batch_size, time, channel, emb_size = u.shape
+        u_ = u.view(batch_size * time, channel, emb_size)
+
+        if self.pooling_type == "attention":
+            attn_scores = self.attn_pooling(u_)
+            attn_weights = F.softmax(attn_scores, dim=1)
+            u_weighted = u_ * attn_weights
+            u_pooled = torch.sum(u_weighted, dim=1)
+        elif self.pooling_type == "sum":
+            u_pooled = torch.sum(u_, dim=1)
+        elif self.pooling_type == "none":
+            u_pooled = u_
+
+        u = u_pooled.view(batch_size, time, emb_size)
+        u = u.transpose(1, 2)
 
         log_dur = None
         log_dur_pred = None
@@ -724,18 +781,42 @@ class UnitHifiganGenerator(HifiganGenerator):
             log_dur_pred = log_dur_pred[uniq_code_mask]
             log_dur = torch.log(dur + 1)
 
+        if self.multi_speaker:
+            if self.normalize_speaker_embeddings:
+                spk = torch.nn.functional.normalize(spk)
+            spk = spk.unsqueeze(-1)
+            spk = self._upsample(spk, u.shape[-1])
+            u = torch.cat([u, spk], dim=1)
+
         return super().forward(u), (log_dur_pred, log_dur)
 
     @torch.no_grad()
-    def inference(self, x):
+    def inference(self, x, spk=None):
         """The inference function performs duration prediction and runs the forward method.
 
         Arguments
         ---------
-        x : torch.Tensor (batch, time)
+        x : torch.Tensor (batch, time, channel)
             feature input tensor.
         """
-        x = self.unit_embedding(x).transpose(1, 2)
+        if not self.skip_token_embedding:
+            x = self.unit_embedding(x)
+
+        batch_size, time, channel, emb_size = x.shape
+        x_ = x.view(batch_size * time, channel, emb_size)
+
+        if self.pooling_type == "attention":
+            attn_scores = self.attn_pooling(x_)
+            attn_weights = F.softmax(attn_scores, dim=1)
+            x_weighted = x_ * attn_weights
+            x_pooled = torch.sum(x_weighted, dim=1)
+        elif self.pooling_type == "sum":
+            x_pooled = torch.sum(x_, dim=1)
+        elif self.pooling_type == "none":
+            x_pooled = x_
+
+        x = x_pooled.view(batch_size, time, emb_size)
+        x = x.transpose(1, 2)
 
         if self.duration_predictor:
             assert (
@@ -747,6 +828,13 @@ class UnitHifiganGenerator(HifiganGenerator):
             )
             # B x C x T
             x = torch.repeat_interleave(x, dur_out.view(-1), dim=2)
+
+        if self.multi_speaker:
+            if self.normalize_speaker_embeddings:
+                spk = torch.nn.functional.normalize(spk)
+            spk = spk.unsqueeze(-1)
+            spk = self._upsample(spk, x.shape[-1])
+            x = torch.cat([x, spk], dim=1)
 
         return super().forward(x)
 
@@ -851,8 +939,8 @@ class DiscriminatorP(torch.nn.Module):
             t = t + n_pad
         x = x.view(b, c, t // self.period, self.period)
 
-        for l in self.convs:
-            x = l(x)
+        for layer in self.convs:
+            x = layer(x)
             x = F.leaky_relu(x, LRELU_SLOPE)
             feat.append(x)
         x = self.conv_post(x)
@@ -901,7 +989,7 @@ class MultiPeriodDiscriminator(torch.nn.Module):
 class DiscriminatorS(torch.nn.Module):
     """HiFiGAN Scale Discriminator.
     It is similar to `MelganDiscriminator` but with a specific architecture explained in the paper.
-    SpeechBrain CNN wrappers are not used here beacause spectral_norm is not often used
+    SpeechBrain CNN wrappers are not used here because spectral_norm is not often used
 
     Arguments
     ---------
@@ -938,8 +1026,8 @@ class DiscriminatorS(torch.nn.Module):
         """
 
         feat = []
-        for l in self.convs:
-            x = l(x)
+        for layer in self.convs:
+            x = layer(x)
             x = F.leaky_relu(x, LRELU_SLOPE)
             feat.append(x)
         x = self.conv_post(x)
@@ -1026,10 +1114,15 @@ class HifiganDiscriminator(nn.Module):
 
 def stft(x, n_fft, hop_length, win_length, window_fn="hann_window"):
     """computes the Fourier transform of short overlapping windows of the input"""
-    o = torch.stft(x.squeeze(1), n_fft, hop_length, win_length,)
+    o = torch.stft(
+        x.squeeze(1),
+        n_fft,
+        hop_length,
+        win_length,
+    )
     M = o[:, :, :, 0]
     P = o[:, :, :, 1]
-    S = torch.sqrt(torch.clamp(M ** 2 + P ** 2, min=1e-8))
+    S = torch.sqrt(torch.clamp(M**2 + P**2, min=1e-8))
     return S
 
 
@@ -1189,7 +1282,6 @@ class L1SpecLoss(nn.Module):
         y : torch.tensor
             real waveform tensor
         """
-
         y_hat_M = mel_spectogram(
             self.sample_rate,
             self.hop_length,
@@ -1255,7 +1347,9 @@ class MelganFeatureLoss(nn.Module):
     sample (Larsen et al., 2016, Kumar et al., 2019).
     """
 
-    def __init__(self,):
+    def __init__(
+        self,
+    ):
         super().__init__()
         self.loss_func = nn.L1Loss()
 
@@ -1292,7 +1386,9 @@ class MSEDLoss(nn.Module):
     and the samples synthesized from the generator to 0.
     """
 
-    def __init__(self,):
+    def __init__(
+        self,
+    ):
         super().__init__()
         self.loss_func = nn.MSELoss()
 

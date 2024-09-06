@@ -3,19 +3,21 @@ Authors
 * Jianyuan Zhong 2020
 * Samuele Cornell 2021
 """
+
 import math
+from typing import Optional
+
 import torch
 import torch.nn as nn
-import speechbrain as sb
-from typing import Optional
-import numpy as np
 
-from .Conformer import ConformerEncoder
-from .Branchformer import BranchformerEncoder
+import speechbrain as sb
 from speechbrain.nnet.activations import Swish
 from speechbrain.nnet.attention import RelPosEncXL
 from speechbrain.nnet.CNN import Conv1d
-from speechbrain.nnet.summary_mixing import SummaryMixing
+from speechbrain.utils.checkpoints import map_old_state_dict_weights
+
+from .Branchformer import BranchformerEncoder
+from .Conformer import ConformerEncoder
 
 
 class TransformerInterface(nn.Module):
@@ -28,7 +30,7 @@ class TransformerInterface(nn.Module):
     https://arxiv.org/pdf/1706.03762.pdf
 
     Arguments
-    ----------
+    ---------
     d_model: int
         The number of expected features in the encoder/decoder inputs (default=512).
     nhead: int
@@ -37,7 +39,7 @@ class TransformerInterface(nn.Module):
         The number of encoder layers in1ì the encoder.
     num_decoder_layers: int, optional
         The number of decoder layers in the decoder.
-    dim_ffn: int, optional
+    d_ffn: int, optional
         The dimension of the feedforward network model hidden layer.
     dropout: int, optional
         The dropout value.
@@ -89,26 +91,10 @@ class TransformerInterface(nn.Module):
     use_linear_after_conv: bool, optional
         If True, will apply a linear transformation of size input_size//2.
         -> Branchformer
-    local_proj_out_dim: int, optional
-        The dimension of the output of the local projection branch. This
-        will be concatenated with the output of the summary branch
-        (default: 512).
-    summary_hid_dim: list [int], optional
-        A list of dimension specifying both the number of hidden layers
-        as well as the size of them in the summary projection branch
-        (default: [1024]).
-    summary_out_dim: int, optional
-        The dimension of the output of the summary projection branch. This
-        will be concatenated with the output of the local branch
-        (default: 1024).
-    activation: torch.nn.Module, optional
-        Torch module specifying the activation function used in both the local
-        and summary branches.
-        (default: torch.nn.GELU)
-    mode: string, optional
-        One of "SummaryMixing" or "SummaryMixing-lite". Changes the SummaryMixing cell
-        according to the definition of the article. "SummaryMixing-lite" removes the
-        local project branch.
+    output_hidden_states: bool, optional
+        Whether the model should output the hidden states as a list of tensor.
+    layerdrop_prob: float
+        The probability to drop an entire layer.
     """
 
     def __init__(
@@ -139,13 +125,8 @@ class TransformerInterface(nn.Module):
         csgu_linear_units: Optional[int] = 3072,
         gate_activation: Optional[nn.Module] = nn.Identity,
         use_linear_after_conv: Optional[bool] = False,
-        local_proj_hid_dim: Optional[list] = [512],
-        local_proj_out_dim: Optional[int] = 512,
-        summary_hid_dim: Optional[list] = [1024],
-        summary_out_dim: Optional[int] = 1024,
-        mode: Optional[str] = "SummaryMixing",
-        output_hidden_states = False,
-        layerdrop_prob = 0.0,
+        output_hidden_states=False,
+        layerdrop_prob=0.0,
     ):
         super().__init__()
         self.causal = causal
@@ -157,14 +138,6 @@ class TransformerInterface(nn.Module):
         self.decoder_vdim = decoder_vdim
         self.output_hidden_states = output_hidden_states
         self.layerdrop_prob = layerdrop_prob
-
-        assert attention_type in [
-            "regularMHA",
-            "RelPosMHAXL",
-            "hypermixing",
-            "SummaryMixing",
-            "fastattention",
-        ]
 
         assert positional_encoding in ["fixed_abs_sine", None]
 
@@ -200,11 +173,6 @@ class TransformerInterface(nn.Module):
                     attention_type=self.attention_type,
                     kdim=self.encoder_kdim,
                     vdim=self.encoder_vdim,
-                    local_proj_hid_dim=local_proj_hid_dim,
-                    local_proj_out_dim=local_proj_out_dim,
-                    summary_hid_dim=summary_hid_dim,
-                    summary_out_dim=summary_out_dim,
-                    mode=mode,
                     output_hidden_states=self.output_hidden_states,
                     layerdrop_prob=self.layerdrop_prob,
                 )
@@ -313,17 +281,22 @@ class PositionalEncoding(nn.Module):
         """
         Arguments
         ---------
-        x : tensor
+        x : torch.Tensor
             Input feature shape (batch, time, fea)
+
+        Returns
+        -------
+        The positional encoding.
         """
         return self.pe[:, : x.size(1)].clone().detach()
 
 
 class TransformerEncoderLayer(nn.Module):
     """This is an implementation of self-attention encoder layer.
+
     Arguments
-    ----------
-    d_ffn: int
+    ---------
+    d_ffn: int, optional
         The dimension of the feedforward network model hidden layer.
     nhead: int
         The number of heads in the multi-head attention models (default=8).
@@ -336,7 +309,7 @@ class TransformerEncoderLayer(nn.Module):
     dropout: int, optional
         The dropout value.
     activation: torch.nn.Module, optional
-        The activation function for Feed-Forward Netowrk layer,
+        The activation function for Feed-Forward Network layer,
         e.g., relu or gelu or swish.
     normalize_before: bool, optional
         Whether normalization should be applied before or after MHA or FFN in Transformer layers.
@@ -351,10 +324,6 @@ class TransformerEncoderLayer(nn.Module):
     causal: bool, optional
         Whether the encoder should be causal or not (the decoder is always causal).
         If causal the Conformer convolutional layer is causal.
-    mode: string, optional
-        One of "SummaryMixing" or "SummaryMixing-lite". Changes the SummaryMixing cell
-        according to the definition of the article. "SummaryMixing-lite" removes the
-        local project branch.
     Example
     -------
     >>> import torch
@@ -457,13 +426,20 @@ class TransformerEncoderLayer(nn.Module):
     ):
         """
         Arguments
-        ----------
+        ---------
         src : torch.Tensor
             The sequence to the encoder layer.
         src_mask : torch.Tensor
             The mask for the src query for each example in the batch.
         src_key_padding_mask : torch.Tensor, optional
             The mask for the src keys for each example in the batch.
+        pos_embs: torch.Tensor, optional
+            The positional embeddings tensor.
+
+        Returns
+        -------
+        output : torch.Tensor
+            The output of the transformer encoder layer.
         """
 
         if self.normalize_before:
@@ -504,6 +480,7 @@ class TransformerEncoderLayer(nn.Module):
 
 class TransformerEncoder(nn.Module):
     """This class implements the transformer encoder.
+
     Arguments
     ---------
     num_layers : int
@@ -512,6 +489,8 @@ class TransformerEncoder(nn.Module):
         Number of attention heads.
     d_ffn : int
         Hidden size of self-attention Feed Forward layer.
+    input_shape : tuple
+        Expected shape of the input.
     d_model : int
         The dimension of the input embedding.
     kdim : int
@@ -520,11 +499,8 @@ class TransformerEncoder(nn.Module):
         Dimension for value (Optional).
     dropout : float
         Dropout for the encoder (Optional).
-    input_module: torch class
-        The module to process the source input feature to expected
-        feature dimension (Optional).
     activation: torch.nn.Module, optional
-        The activation function for Feed-Forward Netowrk layer,
+        The activation function for Feed-Forward Network layer,
         e.g., relu or gelu or swish.
     normalize_before: bool, optional
         Whether normalization should be applied before or after MHA or FFN in Transformer layers.
@@ -541,10 +517,8 @@ class TransformerEncoder(nn.Module):
         type of ffn: regularFFN/1dcnn
     ffn_cnn_kernel_size_list: list of int
         conv kernel size of 2 1d-convs if ffn_type is 1dcnn
-    mode: string, optional
-        One of "SummaryMixing" or "SummaryMixing-lite". Changes the SummaryMixing cell
-        according to the definition of the article. "SummaryMixing-lite" removes the
-        local project branch.
+    output_hidden_states: bool, optional
+        Whether the model should output the hidden states as a list of tensor.
 
     Example
     -------
@@ -554,6 +528,15 @@ class TransformerEncoder(nn.Module):
     >>> output, _ = net(x)
     >>> output.shape
     torch.Size([8, 60, 512])
+
+    >>> import torch
+    >>> x = torch.rand((8, 60, 512))
+    >>> net = TransformerEncoder(1, 8, 512, d_model=512, output_hidden_states=True)
+    >>> output, attn_list, hidden_list = net(x)
+    >>> hidden_list[0].shape
+    torch.Size([8, 60, 512])
+    >>> len(hidden_list)
+    2
     """
 
     def __init__(
@@ -573,12 +556,7 @@ class TransformerEncoder(nn.Module):
         attention_type="regularMHA",
         ffn_type="regularFFN",
         ffn_cnn_kernel_size_list=[3, 3],
-        local_proj_hid_dim=[512],
-        local_proj_out_dim=512,
-        summary_hid_dim=[1024],
-        summary_out_dim=1024,
-        mode="SummaryMixing",
-        output_hidden_states = False
+        output_hidden_states=False,
     ):
         super().__init__()
 
@@ -608,9 +586,7 @@ class TransformerEncoder(nn.Module):
         )
         self.norm = sb.nnet.normalization.LayerNorm(d_model, eps=1e-6)
         self.layerdrop_prob = layerdrop_prob
-        self.rng = np.random.default_rng()
         self.output_hidden_states = output_hidden_states
-
 
     def forward(
         self,
@@ -622,23 +598,37 @@ class TransformerEncoder(nn.Module):
     ):
         """
         Arguments
-        ----------
-        src : tensor
+        ---------
+        src : torch.Tensor
             The sequence to the encoder layer (required).
-        src_mask : tensor
+        src_mask : torch.Tensor
             The mask for the src sequence (optional).
-        src_key_padding_mask : tensor
+        src_key_padding_mask : torch.Tensor
             The mask for the src keys per batch (optional).
+        pos_embs : torch.Tensor
+            The positional embedding tensor
+        dynchunktrain_config : config
+            Not supported for this encoder.
+
+        Returns
+        -------
+        output : torch.Tensor
+            The output of the transformer.
+        attention_lst : list
+            The attention values.
+        hidden_state_lst : list, optional
+            The output of the hidden layers of the encoder.
+            Only works if output_hidden_states is set to true.
         """
         assert (
             dynchunktrain_config is None
         ), "Dynamic Chunk Training unsupported for this encoder"
 
         output = src
+
         if self.layerdrop_prob > 0.0:
-            keep_probs = self.rng.random(len(self.layers))
-        else:
-            keep_probs = None
+            keep_probs = torch.rand(len(self.layers))
+
         attention_lst = []
         if self.output_hidden_states:
             hidden_state_lst = [output]
@@ -658,8 +648,9 @@ class TransformerEncoder(nn.Module):
 
                 if self.output_hidden_states:
                     hidden_state_lst.append(output)
-        
+
         output = self.norm(output)
+
         if self.output_hidden_states:
             return output, attention_lst, hidden_state_lst
         return output, attention_lst
@@ -667,8 +658,9 @@ class TransformerEncoder(nn.Module):
 
 class TransformerDecoderLayer(nn.Module):
     """This class implements the self-attention decoder layer.
+
     Arguments
-    ----------
+    ---------
     d_ffn : int
         Hidden size of self-attention Feed Forward layer.
     nhead : int
@@ -681,6 +673,15 @@ class TransformerDecoderLayer(nn.Module):
         Dimension for value (optional).
     dropout : float
         Dropout for the decoder (optional).
+    activation : Callable
+        Function to use between layers, default nn.ReLU
+    normalize_before : bool
+        Whether to normalize before layers.
+    attention_type : str
+        Type of attention to use, "regularMHA" or "RelPosMHAXL"
+    causal : bool
+        Whether to mask future positions.
+
     Example
     -------
     >>> src = torch.rand((8, 60, 512))
@@ -711,15 +712,19 @@ class TransformerDecoderLayer(nn.Module):
             self.self_attn = sb.nnet.attention.MultiheadAttention(
                 nhead=nhead, d_model=d_model, kdim=kdim, vdim=vdim, dropout=dropout,
             )
-            self.mutihead_attn = sb.nnet.attention.MultiheadAttention(
-                nhead=nhead, d_model=d_model, kdim=kdim, vdim=vdim, dropout=dropout,
+            self.multihead_attn = sb.nnet.attention.MultiheadAttention(
+                nhead=nhead,
+                d_model=d_model,
+                kdim=kdim,
+                vdim=vdim,
+                dropout=dropout,
             )
 
         elif attention_type == "RelPosMHAXL":
             self.self_attn = sb.nnet.attention.RelPosMHAXL(
                 d_model, nhead, dropout, mask_pos_future=causal
             )
-            self.mutihead_attn = sb.nnet.attention.RelPosMHAXL(
+            self.multihead_attn = sb.nnet.attention.RelPosMHAXL(
                 d_model, nhead, dropout, mask_pos_future=causal
             )
 
@@ -751,18 +756,22 @@ class TransformerDecoderLayer(nn.Module):
         """
         Arguments
         ----------
-        tgt: tensor
+        tgt: torch.Tensor
             The sequence to the decoder layer (required).
-        memory: tensor
+        memory: torch.Tensor
             The sequence from the last layer of the encoder (required).
-        tgt_mask: tensor
+        tgt_mask: torch.Tensor
             The mask for the tgt sequence (optional).
-        memory_mask: tensor
+        memory_mask: torch.Tensor
             The mask for the memory sequence (optional).
-        tgt_key_padding_mask: tensor
+        tgt_key_padding_mask: torch.Tensor
             The mask for the tgt keys per batch (optional).
-        memory_key_padding_mask: tensor
+        memory_key_padding_mask: torch.Tensor
             The mask for the memory keys per batch (optional).
+        pos_embs_tgt: torch.Tensor
+            The positional embeddings for the target (optional).
+        pos_embs_src: torch.Tensor
+            The positional embeddings for the source (optional).
         """
         if self.normalize_before:
             tgt1 = self.norm1(tgt)
@@ -791,7 +800,7 @@ class TransformerDecoderLayer(nn.Module):
 
         # multi-head attention over the target sequence and encoder states
 
-        tgt2, multihead_attention = self.mutihead_attn(
+        tgt2, multihead_attention = self.multihead_attn(
             query=tgt1,
             key=memory,
             value=memory,
@@ -819,11 +828,20 @@ class TransformerDecoderLayer(nn.Module):
 
         return tgt, self_attn, multihead_attention
 
+    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+        """Load the model from a state_dict and map the old keys to the new keys."""
+        mapping = {"mutihead_attention": "multihead_attention"}
+        state_dict = map_old_state_dict_weights(state_dict, mapping)
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
+
 
 class TransformerDecoder(nn.Module):
     """This class implements the Transformer decoder.
+
     Arguments
-    ----------
+    ---------
+    num_layers : int
+        Number of transformer layers for the decoder.
     nhead : int
         Number of attention heads.
     d_ffn : int
@@ -836,6 +854,15 @@ class TransformerDecoder(nn.Module):
         Dimension for value (Optional).
     dropout : float, optional
         Dropout for the decoder (Optional).
+    activation : Callable
+        The function to apply between layers, default nn.ReLU
+    normalize_before : bool
+        Whether to normalize before layers.
+    causal : bool
+        Whether to allow future information in decoding.
+    attention_type : str
+        Type of attention to use, "regularMHA" or "RelPosMHAXL"
+
     Example
     -------
     >>> src = torch.rand((8, 60, 512))
@@ -894,18 +921,22 @@ class TransformerDecoder(nn.Module):
         """
         Arguments
         ----------
-        tgt : tensor
+        tgt : torch.Tensor
             The sequence to the decoder layer (required).
-        memory : tensor
+        memory : torch.Tensor
             The sequence from the last layer of the encoder (required).
-        tgt_mask : tensor
+        tgt_mask : torch.Tensor
             The mask for the tgt sequence (optional).
-        memory_mask : tensor
+        memory_mask : torch.Tensor
             The mask for the memory sequence (optional).
-        tgt_key_padding_mask : tensor
+        tgt_key_padding_mask : torch.Tensor
             The mask for the tgt keys per batch (optional).
-        memory_key_padding_mask : tensor
+        memory_key_padding_mask : torch.Tensor
             The mask for the memory keys per batch (optional).
+        pos_embs_tgt : torch.Tensor
+            The positional embeddings for the target (optional).
+        pos_embs_src : torch.Tensor
+            The positional embeddings for the source (optional).
         """
         output = tgt
         self_attns, multihead_attns = [], []
@@ -932,12 +963,14 @@ class NormalizedEmbedding(nn.Module):
     Since the dot product of the self-attention is always normalized by sqrt(d_model)
     and the final linear projection for prediction shares weight with the embedding layer,
     we multiply the output of the embedding by sqrt(d_model).
+
     Arguments
     ---------
     d_model: int
         The number of expected features in the encoder/decoder inputs (default=512).
     vocab: int
         The vocab size.
+
     Example
     -------
     >>> emb = NormalizedEmbedding(512, 1000)
@@ -953,19 +986,26 @@ class NormalizedEmbedding(nn.Module):
         self.d_model = d_model
 
     def forward(self, x):
-        """ Processes the input tensor x and returns an output tensor."""
+        """Processes the input tensor x and returns an output tensor."""
         return self.emb(x) * math.sqrt(self.d_model)
 
 
 def get_key_padding_mask(padded_input, pad_idx):
     """Creates a binary mask to prevent attention to padded locations.
-    We suggest using get_mask_from_lengths instead of this function.
+    We suggest using ``get_mask_from_lengths`` instead of this function.
+
     Arguments
-    ----------
-    padded_input: int
+    ---------
+    padded_input: torch.Tensor
         Padded input.
-    pad_idx:
+    pad_idx: int
         idx for padding element.
+
+    Returns
+    -------
+    key_padded_mask: torch.Tensor
+        Binary mask to prevent attention to padding.
+
     Example
     -------
     >>> a = torch.LongTensor([[1,1,0], [2,3,0], [4,5,0]])
@@ -990,11 +1030,18 @@ def get_key_padding_mask(padded_input, pad_idx):
 
 
 def get_lookahead_mask(padded_input):
-    """Creates a binary mask for each sequence which maskes future frames.
+    """Creates a binary mask for each sequence which masks future frames.
+
     Arguments
     ---------
     padded_input: torch.Tensor
         Padded input tensor.
+
+    Returns
+    -------
+    mask : torch.Tensor
+        Binary mask for masking future frames.
+
     Example
     -------
     >>> a = torch.LongTensor([[1,1,0], [2,3,0], [4,5,0]])
@@ -1018,17 +1065,20 @@ def get_lookahead_mask(padded_input):
 
 def get_mask_from_lengths(lengths, max_len=None):
     """Creates a binary mask from sequence lengths
+
     Arguments
     ---------
     lengths: torch.Tensor
         A tensor of sequence lengths
     max_len: int (Optional)
         Maximum sequence length, defaults to None.
+
     Returns
     -------
     mask: torch.Tensor
         the mask where padded elements are set to True.
         Then one can use tensor.masked_fill_(mask, 0) for the masking.
+
     Example
     -------
     >>> lengths = torch.tensor([3, 2, 4])

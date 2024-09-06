@@ -8,16 +8,18 @@ Authors
  * Andreas Nautsch 2023
  * Adel Moumen 2023
 """
+
 import logging
 import pathlib
-from speechbrain.utils.distributed import run_on_main
-from speechbrain.utils.fetching import fetch, FetchFrom, FetchSource
+
 from speechbrain.utils.checkpoints import (
     DEFAULT_LOAD_HOOKS,
     DEFAULT_TRANSFER_HOOKS,
     PARAMFILE_EXT,
     get_default_hook,
 )
+from speechbrain.utils.distributed import run_on_main
+from speechbrain.utils.fetching import FetchFrom, FetchSource, fetch
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +171,10 @@ class Pretrainer:
             return split(path)
 
     def collect_files(
-        self, default_source=None, internal_ddp_handling=False,
+        self,
+        default_source=None,
+        internal_ddp_handling=False,
+        use_auth_token=False,
     ):
         """Fetches parameters from known paths with fallback default_source
 
@@ -190,6 +195,9 @@ class Pretrainer:
         internal_ddp_handling : bool
             Whether/not the function should handle DDP i.e. `run_on_main`.
             (Default: False)
+        use_auth_token : bool (default: False)
+            If true Huggingface's auth_token will be used to load private models from the HuggingFace Hub,
+            default is False because the majority of models are public.
 
         Returns
         -------
@@ -226,7 +234,7 @@ class Pretrainer:
                         "source": source,
                         "overwrite": False,
                         "save_filename": save_filename,
-                        "use_auth_token": False,
+                        "use_auth_token": use_auth_token,
                         "revision": None,
                     },
                 )
@@ -238,7 +246,7 @@ class Pretrainer:
                     savedir=self.collect_in,
                     overwrite=False,
                     save_filename=save_filename,
-                    use_auth_token=False,
+                    use_auth_token=use_auth_token,
                     revision=None,
                 )
             else:
@@ -249,7 +257,7 @@ class Pretrainer:
                     savedir=self.collect_in,
                     overwrite=False,
                     save_filename=save_filename,
-                    use_auth_token=False,
+                    use_auth_token=use_auth_token,
                     revision=None,
                 )
             loadable_paths[name] = path

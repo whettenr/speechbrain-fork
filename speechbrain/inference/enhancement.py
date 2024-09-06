@@ -13,8 +13,10 @@ Authors:
  * Adel Moumen 2023
  * Pradnya Kandarkar 2023
 """
+
 import torch
 import torchaudio
+
 from speechbrain.inference.interfaces import Pretrained
 from speechbrain.utils.callchains import lengths_arg_exists
 
@@ -51,6 +53,11 @@ class SpectralMaskEnhancement(Pretrained):
         ---------
         wavs : torch.Tensor
             A batch of waveforms to convert to log spectral mags.
+
+        Returns
+        -------
+        feats : torch.Tensor
+            The log spectral magnitude features.
         """
         feats = self.hparams.compute_stft(wavs)
         feats = self.hparams.spectral_magnitude(feats)
@@ -68,7 +75,7 @@ class SpectralMaskEnhancement(Pretrained):
 
         Returns
         -------
-        torch.Tensor
+        wavs : torch.Tensor
             A batch of enhanced waveforms of the same shape as input.
         """
         noisy = noisy.to(self.device)
@@ -93,6 +100,13 @@ class SpectralMaskEnhancement(Pretrained):
             Location on disk to load file for enhancement.
         output_filename : str
             If provided, writes enhanced data to this file.
+        **kwargs : dict
+            Arguments forwarded to ``load_audio``.
+
+        Returns
+        -------
+        wav : torch.Tensor
+            The enhanced waveform.
         """
         noisy = self.load_audio(filename, **kwargs)
         noisy = noisy.to(self.device)
@@ -105,7 +119,11 @@ class SpectralMaskEnhancement(Pretrained):
             enhanced = self.enhance_batch(batch)
 
         if output_filename is not None:
-            torchaudio.save(output_filename, enhanced, channels_first=False)
+            torchaudio.save(
+                uri=output_filename,
+                src=enhanced,
+                sample_rate=self.hparams.compute_stft.sample_rate,
+            )
 
         return enhanced.squeeze(0)
 
@@ -161,6 +179,13 @@ class WaveformEnhancement(Pretrained):
             Location on disk to load file for enhancement.
         output_filename : str
             If provided, writes enhanced data to this file.
+        **kwargs : dict
+            Arguments forwarded to ``load_audio``
+
+        Returns
+        -------
+        enhanced : torch.Tensor
+            The enhanced waveform.
         """
         noisy = self.load_audio(filename, **kwargs)
 
@@ -169,7 +194,11 @@ class WaveformEnhancement(Pretrained):
         enhanced = self.enhance_batch(batch)
 
         if output_filename is not None:
-            torchaudio.save(output_filename, enhanced, channels_first=False)
+            torchaudio.save(
+                uri=output_filename,
+                src=enhanced,
+                sample_rate=self.audio_normalizer.sample_rate,
+            )
 
         return enhanced.squeeze(0)
 

@@ -12,9 +12,8 @@ Authors
  * Rogier van Dalen 2023
  * Sourav Bhattacharya 2023
 """
+
 import torch
-import math
-from torch import nn
 import speechbrain as sb
 from typing import Optional
 from speechbrain.nnet.containers import Sequential
@@ -119,6 +118,8 @@ class VanillaNN(Sequential):
 
     Arguments
     ---------
+    input_shape : tuple
+        Expected shape of the input tensors.
     activation : torch class
         A class used for constructing the activation layers.
     dnn_blocks : int
