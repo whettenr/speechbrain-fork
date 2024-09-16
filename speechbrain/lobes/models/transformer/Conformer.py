@@ -644,7 +644,6 @@ class ConformerEncoder(nn.Module):
     >>> output, _, hs = net(x, pos_embs=pos_emb)
     >>> hs[0].shape
     torch.Size([8, 60, 512])
-
     """
 
     def __init__(
@@ -663,6 +662,7 @@ class ConformerEncoder(nn.Module):
         attention_type="RelPosMHAXL",
         output_hidden_states=False,
         layerdrop_prob=0.0,
+        layers_to_use=[]
     ):
         super().__init__()
 
@@ -688,6 +688,9 @@ class ConformerEncoder(nn.Module):
         self.layerdrop_prob = layerdrop_prob
         self.attention_type = attention_type
         self.output_hidden_states = output_hidden_states
+        self.num_layers = num_layers
+        self.layers_to_use = list(range(num_layers))
+        print(f'LAYERS SET TO {self.layers_to_use}')
 
     def forward(
         self,
@@ -740,13 +743,18 @@ class ConformerEncoder(nn.Module):
         if self.output_hidden_states:
             hidden_state_lst = [output]
 
-        for i, enc_layer in enumerate(self.layers):
+        # growth_layers = self.layers[:self.growth_stage] + self.layers[-self.growth_stage:]
+        # for i, enc_layer in enumerate(growth_layers):
+        # for i, enc_layer in enumerate(self.layers):
+            # print('i: ', i)
+        for i in self.layers_to_use:
             if (
                 not self.training
                 or self.layerdrop_prob == 0.0
                 or keep_probs[i] > self.layerdrop_prob
             ):
-                output, attention = enc_layer(
+                # output, attention = enc_layer(
+                output, attention = self.layers[i](
                     output,
                     src_mask=src_mask,
                     src_key_padding_mask=src_key_padding_mask,

@@ -174,3 +174,8 @@ checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
         counter: !ref <epoch_counter>
         quantizer: !ref <Quantizer>
         linear: !ref <linear>
+
+############################## growth parameters ################################
+
+growth_stage: 1
+growth_interval: 10000

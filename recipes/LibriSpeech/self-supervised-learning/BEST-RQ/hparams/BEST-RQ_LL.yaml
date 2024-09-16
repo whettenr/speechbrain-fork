@@ -20,9 +20,9 @@ train_stage_log: !ref <output_folder>/train_stage_log.txt
 train_splits: ["train-clean-100", "train-clean-360", "train-other-500"]
 dev_splits: ["dev-clean"]
 test_splits: ["test-clean"]
-train_csv: !ref <output_folder>/train.csv
-valid_csv: !ref <output_folder>/dev-clean.csv
-skip_prep: False
+train_csv: /lustre/fsn1/projects/rech/nkp/uaj64gk/csv-all/train.csv
+valid_csv: /lustre/fswork/projects/rech/nkp/uaj64gk/attention_alt/brq-att-alt-exp/results/csv/dev-clean.csv
+skip_prep: True
 
 avoid_if_longer_than: 60.0
 avoid_if_shorter_than: 2.0
@@ -36,8 +36,8 @@ number_of_epochs: 3000
 optimizer_step_limit: 300000
 
 # This setup is for 8 V100.
-seconds_per_batch: 400
-train_num_buckets: 150
+seconds_per_batch: 200
+train_num_buckets: 70
 grad_accumulation_factor: 2
 
 train_dataloader_options:
@@ -174,3 +174,8 @@ checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
         counter: !ref <epoch_counter>
         quantizer: !ref <Quantizer>
         linear: !ref <linear>
+
+############################## growth parameters ################################
+
+growth_stage: 1
+growth_interval: 10000
