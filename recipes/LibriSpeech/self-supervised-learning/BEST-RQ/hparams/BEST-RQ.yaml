@@ -147,7 +147,7 @@ compute_features: !new:speechbrain.lobes.features.Fbank
 
 normalize: !new:speechbrain.processing.features.InputNormalization
    norm_type: global
-   update_until_epoch: 0
+   update_until_epoch: 4
 
 ############################## running ################################
 
