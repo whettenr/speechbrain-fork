@@ -146,6 +146,7 @@ def prepare_librilight(
 
 @dataclass
 class LSRow:
+    ID: str
     file_path: str
     start: float
     stop: float
@@ -161,6 +162,7 @@ def process_and_split_line(wav_file, split_interval) -> list:
         while start < duration:
             stop = min(start + split_interval, duration)
             new_rows.append([
+                os.path.basename(wav_file) + str(start / info.sample_rate),
                 wav_file,
                 start,
                 stop,
@@ -169,6 +171,7 @@ def process_and_split_line(wav_file, split_interval) -> list:
             start = start + split_interval
     else:
         new_rows.append([
+            os.path.basename(wav_file),
             wav_file,
             0,
             0,
@@ -182,6 +185,7 @@ def process_line(wav_file) -> LSRow:
     duration = info.num_frames / info.sample_rate
 
     return LSRow(
+        ID=os.path.basename(wav_file),
         file_path=wav_file,
         start=0,
         stop=0,
@@ -215,7 +219,7 @@ def create_csv(save_folder, wav_lst, split, split_interval):
     msg = "Creating csv lists in  %s..." % (csv_file)
     logger.info(msg)
 
-    csv_lines = [["wav", "duration"]]
+    csv_lines = [["ID", "wav", "start", "stop", "duration"]]
 
     # Processing all the wav files in wav_lst
     # FLAC metadata reading is already fast, so we set a high chunk size
@@ -224,6 +228,7 @@ def create_csv(save_folder, wav_lst, split, split_interval):
         logger.info(f'Processing {split}')
         for row in parallel_map(process_line, wav_lst, chunk_size=8192):
             csv_line = [
+                row.ID,
                 row.file_path,
                 str(row.start),
                 str(row.stop),
@@ -233,7 +238,7 @@ def create_csv(save_folder, wav_lst, split, split_interval):
             # Appending current file to the csv_lines list
             csv_lines.append(csv_line)
     else:
-        csv_lines = [["wav", "start", "stop", "duration"]]
+        csv_lines = [["ID", "wav", "start", "stop", "duration"]]
         logger.info(f'Processing {split} and splitting into {split_interval} sec chunks...')
         line_processor = functools.partial(process_and_split_line, split_interval=split_interval)
         for rows in parallel_map(line_processor, wav_lst, chunk_size=128):

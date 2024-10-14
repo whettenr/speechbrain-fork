@@ -107,7 +107,9 @@ def brq_mask_collate_fn(
         Mask with the indices to be masked in the input tensor.
     """
     wav_lst, latent_length_lst = [], []
+    ids = []
     for sample in samples_lst:
+        ids.append(sample["id"])
         sig = sample["sig"]
         wav_lst.append(sig)
         latent_length = get_out_len_fn(torch.as_tensor(sig.size(-1)))

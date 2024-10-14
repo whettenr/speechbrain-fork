@@ -238,18 +238,18 @@ def dataio_prepare(hparams):
 
         return (input_lengths // (sr * hop_length / 1000) + 1).to(torch.long)
 
-    @sb.utils.data_pipeline.takes(["wav", "start", "stop"])
+    @sb.utils.data_pipeline.takes("wav", "start", "stop")
     @sb.utils.data_pipeline.provides("sig")
     def audio_pipeline(wav, start, stop):
         sig = sb.dataio.dataio.read_audio({
             "file": wav,
-            "start": start,
-            "stop": stop,
+            "start": float(start),
+            "stop": float(stop),
         })
         return sig
 
     sb.dataio.dataset.add_dynamic_item(datasets, audio_pipeline)
-    sb.dataio.dataset.set_output_keys(datasets, ["sig"])
+    sb.dataio.dataset.set_output_keys(datasets, ["id", "sig"])
 
     # We create the DynamicBatch Sampler
     train_sampler = DynamicBatchSampler(

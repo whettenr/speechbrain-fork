@@ -9,6 +9,9 @@
 seed: 1000
 __set_seed: !apply:speechbrain.utils.seed_everything [!ref <seed>]
 data_folder: !PLACEHOLDER # /path/to/Libri-light/
+
+ckpt_interval_steps: 50000
+
 output_folder: !ref results/<seed>
 save_folder: !ref <output_folder>/save
 # Logging file for every N optimizer steps (many lines)
@@ -38,7 +41,7 @@ optimizer_step_limit: 300000
 # This setup is for 8 V100.
 seconds_per_batch: 400
 train_num_buckets: 150
-grad_accumulation_factor: 2
+grad_accumulation_factor: 1
 
 train_dataloader_options:
     num_workers: 4
@@ -62,9 +65,9 @@ pad_to_divisible_by: 4
 
 ####################### Model parameters ###########################
 # Transformer
-d_model: 576
+d_model: 848
 nhead: 8
-num_encoder_layers: 12
+num_encoder_layers: 24
 num_decoder_layers: 0
 d_ffn: 2048
 transformer_dropout: 0.1
