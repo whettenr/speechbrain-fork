@@ -684,6 +684,17 @@ class ConformerEncoder(nn.Module):
                 for i in range(num_layers)
             ]
         )
+        self.d_ffn=d_ffn
+        self.nhead=nhead
+        self.d_model=d_model
+        self.kdim=kdim
+        self.vdim=vdim
+        self.dropout=dropout
+        self.activation=activation
+        self.kernel_size=kernel_size
+        self.bias=bias
+        self.causal=causal
+
         self.norm = LayerNorm(d_model, eps=1e-6)
         self.layerdrop_prob = layerdrop_prob
         self.attention_type = attention_type
@@ -691,6 +702,77 @@ class ConformerEncoder(nn.Module):
         self.num_layers = num_layers
         self.layers_to_use = list(range(num_layers))
         print(f'LAYERS SET TO {self.layers_to_use}')
+
+    def reinitialize_layers(self, layer_indices):
+        """
+        Reinitializes the specified layers of the ConformerEncoder.
+
+        Arguments
+        ---------
+        layer_indices : list of int
+            Indices of the layers to reinitialize.
+        """ 
+        for idx in layer_indices:
+            if 0 <= idx < len(self.layers):
+                print(f"resetting layer: {idx}")
+                device = next(self.layers[idx].parameters()).device
+                new_layer = ConformerEncoderLayer(
+                    d_ffn=self.d_ffn,   # Retain original initialization arguments
+                    nhead=self.nhead,
+                    d_model=self.d_model,
+                    kdim=self.kdim,
+                    vdim=self.vdim,
+                    dropout=self.dropout,
+                    activation=self.activation,
+                    kernel_size=self.kernel_size,
+                    bias=self.bias,
+                    causal=self.causal,
+                    attention_type=self.attention_type,
+                )
+                self.layers[idx] = new_layer.to(device)
+                
+            else:
+                raise IndexError(f"Layer index {idx} is out of range (0, {len(self.layers) - 1})")
+
+            # # Example of reinitialization (you can customize this)
+            # for param in layer.parameters():
+            #     if param.dim() > 1:
+            #         torch.nn.init.xavier_uniform_(param)
+            #     else:
+            #         torch.nn.init.zeros_(param)
+
+    def reinitialize_layer_using_layer(self, target_layer_idx, source_layer_idx, noise_std=0.0):
+        """
+        Reinitialize the parameters of a target layer using the parameters
+        of a source layer with optional added noise.
+
+        Arguments
+        ---------
+        target_layer_idx : int
+            The index of the target layer to be reinitialized.
+        source_layer_idx : int
+            The index of the source layer to copy parameters from.
+        noise_std : float, optional
+            Standard deviation of the Gaussian noise to add to the weights.
+            If 0.0, no noise is added. Default: 0.0.
+        """
+
+        # Validate layer indices
+        if not (0 <= target_layer_idx < len(self.layers)) or not (0 <= source_layer_idx < len(self.layers)):
+            raise IndexError("Layer indices are out of range.")
+
+        # Get the source and target layers
+        source_layer = self.layers[source_layer_idx]
+        target_layer = self.layers[target_layer_idx]
+
+        # Copy the parameters from source to target
+        for target_param, source_param in zip(target_layer.parameters(), source_layer.parameters()):
+            with torch.no_grad():
+                target_param.copy_(source_param)
+                if noise_std > 0.0:
+                    # Add Gaussian noise if specified
+                    target_param.add_(torch.randn_like(target_param) * noise_std)
+
 
     def forward(
         self,

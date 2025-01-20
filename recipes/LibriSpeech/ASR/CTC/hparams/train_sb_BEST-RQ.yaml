@@ -292,3 +292,5 @@ cer_computer: !name:speechbrain.utils.metric_stats.ErrorRateStats
 
 epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
    limit: !ref <number_of_epochs>
+
+reinit_last: 0

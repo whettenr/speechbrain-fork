@@ -132,9 +132,10 @@ class BestRQBrain(sb.core.Brain):
 
         # update layers to be used 
         # self.optimizer_step > 0 prevents from updating right at the beginning
-        if  self.step < (self.growth_limit) and self.step % (self.growth_interval) == 0 and self.optimizer_step > 0:
+        if  (self.step < self.growth_limit) and (self.step % self.growth_interval) == 0 and self.optimizer_step > 0:
             # run_on_main
-            print("self.optimizer_step")
+            print("self.step: ", self.step)
+            print("self.optimizer_step: ", self.optimizer_step)
             # if sb.utils.distributed.if_main_process():
             print(f'upping growth stage from {self.growth_stage}...')
             self.growth_stage = self.growth_stage + 1
