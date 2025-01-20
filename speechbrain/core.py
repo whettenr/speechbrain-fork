@@ -46,13 +46,11 @@ from speechbrain.utils.logger import get_logger
 from speechbrain.utils.optimizers import rm_vector_weight_decay
 from speechbrain.utils.profiling import prepare_profiler
 
+sb.utils.quirks.apply_quirks()
+
 logger = get_logger(__name__)
 DEFAULT_LOG_CONFIG = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_LOG_CONFIG = os.path.join(DEFAULT_LOG_CONFIG, "log-config.yaml")
-torch._C._jit_set_profiling_executor(False)
-torch._C._jit_set_profiling_mode(False)
-torch.backends.cuda.matmul.allow_tf32 = True  # allow tf32 on matmul
-torch.backends.cudnn.allow_tf32 = True  # allow tf32 on cudnn
 INTRA_EPOCH_CKPT_FLAG = "brain_intra_epoch_ckpt"
 PYTHON_VERSION_MAJOR = 3
 PYTHON_VERSION_MINOR = 8
@@ -171,9 +169,9 @@ def create_experiment_directory(
                 hyperparams_filename = os.path.join(
                     experiment_directory, "hyperparams.yaml"
                 )
-                with open(hyperparams_to_save) as f:
+                with open(hyperparams_to_save, encoding="utf-8") as f:
                     resolved_yaml = resolve_references(f, overrides)
-                with open(hyperparams_filename, "w") as w:
+                with open(hyperparams_filename, "w", encoding="utf-8") as w:
                     print("# Generated %s from:" % date.today(), file=w)
                     print("# %s" % os.path.abspath(hyperparams_to_save), file=w)
                     print("# yamllint disable", file=w)
@@ -193,6 +191,11 @@ def create_experiment_directory(
             sb.utils.logger.setup_logging(log_config, logger_overrides)
             sys.excepthook = _logging_excepthook
 
+            # Log quirks again so that it makes it to the log file.
+            # Quirks are applied way earlier, before logging is properly setup,
+            # so this gives a chance to the user to see them, lowering surprise.
+            sb.utils.quirks.log_applied_quirks()
+
             # Log beginning of experiment!
             logger.info("Beginning experiment!")
             logger.info(f"Experiment folder: {experiment_directory}")
@@ -201,7 +204,9 @@ def create_experiment_directory(
             if save_env_desc:
                 description_str = sb.utils.logger.get_environment_description()
                 with open(
-                    os.path.join(experiment_directory, "env.log"), "w"
+                    os.path.join(experiment_directory, "env.log"),
+                    "w",
+                    encoding="utf-8",
                 ) as fo:
                     fo.write(description_str)
     finally:
@@ -1217,6 +1222,7 @@ class Brain:
         """
         amp = AMPConfig.from_name(self.precision)
         should_step = (self.step % self.grad_accumulation_factor) == 0
+        self.on_fit_batch_start(batch, should_step)
 
         with self.no_sync(not should_step):
             if self.use_amp:
@@ -1340,6 +1346,9 @@ class Brain:
 
     def on_fit_batch_start(self, batch, should_step):
         """Called at the beginning of ``fit_batch()``.
+
+        This method is not called under the AMP context manager. Do not assume
+        automatic casting of the input batch to a lower precision (e.g. fp16).
 
         Arguments
         ---------
@@ -1863,13 +1872,13 @@ class Brain:
             "avg_train_loss": self.avg_train_loss,
             "optimizer_step": self.optimizer_step,
         }
-        with open(path, "w") as w:
+        with open(path, "w", encoding="utf-8") as w:
             w.write(yaml.dump(save_dict))
 
     @sb.utils.checkpoints.mark_as_loader
     def _recover(self, path, end_of_epoch):
         del end_of_epoch
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             save_dict = yaml.safe_load(f)
         self.step = save_dict["step"]
         self.avg_train_loss = save_dict["avg_train_loss"]
