@@ -64,6 +64,7 @@ hop_length: 10
 pad_to_divisible_by: 4
 
 ####################### Model parameters ###########################
+
 # Transformer
 d_model: 576
 nhead: 8
