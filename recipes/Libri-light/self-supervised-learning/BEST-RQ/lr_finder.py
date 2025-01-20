@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Recipe for pretraining Best-RQ (https://arxiv.org/pdf/2405.04296)
 
-To run this recipe call python train.py BEST-RQ.yaml --find_unused_parameters
+To run this recipe call python lr_finder.py BEST-RQ.yaml
 
 Authors
-    * Ryan Whetten 2023
+    * Ryan Whetten 2025
 """
 
 import sys
@@ -21,19 +21,12 @@ from speechbrain.dataio.sampler import DynamicBatchSampler
 from speechbrain.lobes.models.BESTRQ import brq_mask_collate_fn
 from speechbrain.nnet.schedulers import update_learning_rate
 from speechbrain.utils.distributed import run_on_main
-from speechbrain.utils.logger import get_logger
-from speechbrain.utils.logger import get_logger
 from speechbrain.dataio.dataio import save_pkl
+from speechbrain.utils.logger import get_logger
+
 logger = get_logger(__name__)
 
 
-START_EXP=-6
-END_EXP=-2
-NUM_OF_LRS=1000
-STAGGER = 25000 # the amount of warm up
-LEARN_RATE_EPXS = torch.linspace(START_EXP, END_EXP, NUM_OF_LRS)
-LRS = 10**LEARN_RATE_EPXS
-losses = []
 class BestRQBrain(sb.core.Brain):
 
     def compute_forward(self, batch, stage):
@@ -109,39 +102,44 @@ class BestRQBrain(sb.core.Brain):
 
     def on_fit_batch_end(self, batch, outputs, loss, should_step):
         """Called after fit_batch(), updates learning rate and does per-step logging."""
+
         if should_step:
-            update_learning_rate(self.optimizer, LRS[self.optimizer_step - STAGGER])
-            losses.append(loss)
-            if (self.optimizer_step - STAGGER) == NUM_OF_LRS:
-                save_pkl((losses,LEARN_RATE_EPXS), 'lr_finder_output.pkl')
-        # if should_step:
-        #     self.hparams.noam_annealing(self.optimizer)
+            if self.optimizer_step - self.stagger) > 0:
+                update_learning_rate(self.optimizer, LRS[self.optimizer_step - self.stagger])
+                self.losses.append(loss)
+                if (self.optimizer_step - self.stagger) == self.num_of_lrs:
+                    if (hasattr(self.hparams, "output_lrs_file")):
+                        save_pkl((self.losses,self.learn_rate_exps), self.hparams.output_lrs_file)
+                    else:
+                        save_pkl((self.losses,self.learn_rate_exps), 'lr_finder_output.pkl')
+            else:
+                self.hparams.noam_annealing(self.optimizer)
 
-        # # Perform step-wise logging
-        # if (
-        #     hasattr(self.hparams, "log_interval")
-        #     and self.optimizer_step % self.hparams.log_interval == 0
-        # ):
+        # Perform step-wise logging
+        if (
+            hasattr(self.hparams, "log_interval")
+            and self.optimizer_step % self.hparams.log_interval == 0
+        ):
 
-        #     # Create a dictionary and fill it with everything we
-        #     # want to log such as contrastive loss, diversity loss,
-        #     # learning rate etc.
-        #     log_dct = {}
+            # Create a dictionary and fill it with everything we
+            # want to log such as contrastive loss, diversity loss,
+            # learning rate etc.
+            log_dct = {}
 
-        #     current_lr = self.optimizer.param_groups[0]["lr"]
-        #     log_dct["steps"] = self.optimizer_step
-        #     log_dct["lr"] = current_lr
-        #     log_dct["avg_loss"] = self.avg_train_loss
+            current_lr = self.optimizer.param_groups[0]["lr"]
+            log_dct["steps"] = self.optimizer_step
+            log_dct["lr"] = current_lr
+            log_dct["avg_loss"] = self.avg_train_loss
 
-        #     if hasattr(self, "time_last_log"):
-        #         run_time_since_last_log = time.time() - self.time_last_log
-        #         log_dct["run_time"] = run_time_since_last_log
-        #     self.time_last_log = time.time()
+            if hasattr(self, "time_last_log"):
+                run_time_since_last_log = time.time() - self.time_last_log
+                log_dct["run_time"] = run_time_since_last_log
+            self.time_last_log = time.time()
 
-        #     if sb.utils.distributed.if_main_process():
-        #         self.hparams.train_steps_logger.log_stats(
-        #             stats_meta=log_dct,
-        #         )
+            if sb.utils.distributed.if_main_process():
+                self.hparams.train_steps_logger.log_stats(
+                    stats_meta=log_dct,
+                )
 
     def on_stage_start(self, stage, epoch):
         """Gets called at the beginning of each epoch"""
@@ -343,6 +341,15 @@ def main():
         run_opts=run_opts,
         checkpointer=hparams["checkpointer"],
     )
+
+    brain.start_exp = hparams['start_exp']
+    brain.end_exp = hparams['end_exp']
+    brain.num_of_lrs = hparams['num_of_lrs']
+    brain.stagger = hparams['stagger']
+    brain.learn_rate_exps = torch.linspace(brain.start_exp, brain.end_exp, brain.num_of_lrs)
+    brain.lrs = 10**brain.learn_rate_exps
+    brain.losses = []
+
     # with torch.autograd.detect_anomaly():
     brain.fit(
         brain.hparams.epoch_counter,
