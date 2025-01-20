@@ -104,8 +104,8 @@ class BestRQBrain(sb.core.Brain):
         """Called after fit_batch(), updates learning rate and does per-step logging."""
 
         if should_step:
-            if (self.optimizer_step - self.stagger) > 0:
-                update_learning_rate(self.optimizer, self.lrs[self.optimizer_step - self.stagger - 1])
+            if (self.optimizer_step - self.stagger) > 0 and (self.optimizer_step < self.num_of_lrs) :
+                update_learning_rate(self.optimizer, self.lrs[self.optimizer_step - self.stagger])
                 self.losses.append(loss)
                 if (self.optimizer_step - self.stagger) == self.num_of_lrs:
                     if (hasattr(self.hparams, "output_lrs_file")):
