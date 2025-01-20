@@ -1,6 +1,6 @@
 # ############################################################################
 # Model: Best-RQ
-# Encoder: Conformer Encoder w/Random Projection Quantizer
+# Encoder: Conformer Encoder w/Random Projection Quantizer Growing in Layers
 # Training: Libri-light
 # Authors:  Ryan Whetten 2025
 # ############################################################################
@@ -177,3 +177,7 @@ checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
         counter: !ref <epoch_counter>
         quantizer: !ref <Quantizer>
         linear: !ref <linear>
+
+############################## growth parameters ################################
+
+growth_stage: 1

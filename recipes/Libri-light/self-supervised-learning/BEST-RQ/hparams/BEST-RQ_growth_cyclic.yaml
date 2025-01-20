@@ -1,6 +1,6 @@
 # ############################################################################
 # Model: Best-RQ
-# Encoder: Conformer Encoder w/Random Projection Quantizer
+# Encoder: Conformer Encoder w/Random Projection Quantizer CyclicCosine LR
 # Training: Libri-light
 # Authors:  Ryan Whetten 2025
 # ############################################################################
@@ -164,9 +164,12 @@ train_steps_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
 train_stage_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
     save_file: !ref <train_stage_log>
 
-noam_annealing: !new:speechbrain.nnet.schedulers.NoamScheduler
+n_warmup_steps: 10000
+total_steps: 60000
+noam_annealing: !new:speechbrain.nnet.schedulers.CyclicCosineScheduler
     lr_initial: !ref <lr>
-    n_warmup_steps: 25000
+    n_warmup_steps: !ref <n_warmup_steps>
+    total_steps: !ref <total_steps>
 
 checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
     checkpoints_dir: !ref <save_folder>
@@ -177,3 +180,10 @@ checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
         counter: !ref <epoch_counter>
         quantizer: !ref <Quantizer>
         linear: !ref <linear>
+
+############################## growth parameters ################################
+
+growth_stage: 1
+reset_optimizer_on_growth: False
+init_using_previous_layers: False
+init_noise: 0.00

@@ -130,6 +130,7 @@ class BestRQBrain(sb.core.Brain):
                     stats_meta=log_dct,
                 )
 
+
     def on_stage_start(self, stage, epoch):
         """Gets called at the beginning of each epoch"""
         if stage != sb.Stage.TRAIN:
@@ -330,6 +331,16 @@ def main():
         run_opts=run_opts,
         checkpointer=hparams["checkpointer"],
     )
+
+    print(f'Percentage Masked: {hparams["mask_prob"] * 4 * 100}%')
+
+    # define growth_stage
+    brain.growth_stage = hparams['growth_stage']
+    brain.total_layers = list(range(brain.modules.wrapper.transformer.encoder.num_layers))
+    brain.modules.wrapper.transformer.encoder.layers_to_use = brain.total_layers[:brain.growth_stage] + brain.total_layers[-brain.growth_stage:]
+    print(f'brain.modules.wrapper.transformer.encoder.layers_to_use: {brain.modules.wrapper.transformer.encoder.layers_to_use}')
+    
+   
     # with torch.autograd.detect_anomaly():
     brain.fit(
         brain.hparams.epoch_counter,

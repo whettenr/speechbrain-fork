@@ -135,6 +135,19 @@ class BestRQBrain(sb.core.Brain):
         if stage != sb.Stage.TRAIN:
             self.acc_metric = []
 
+        # if training and told to reset and step is a multiple of 1000 -> reset
+        # a bit hacky: the reason for checking if step is multiple of 1000 if code crashed and we
+        # want to train using a checkpoint, we would not want to reset the optimizer
+        # basically we are assuming that it is very unlikely for an epoch to finish on a multiple of 1000
+        if stage == sb.Stage.TRAIN and self.reset_optimizer and (self.optimizer_step % 1000 == 0):
+            print('Resetting optimizer state')
+            print('self.optimizer_step: ', self.optimizer_step)
+            for group in self.optimizer.param_groups:
+                for param in group['params']:
+                    if param in self.optimizer.state:
+                        self.optimizer.state[param] = {} # reset parameters state
+            self.reset_optimizer = False
+
     def on_stage_end(self, stage, stage_loss, epoch=None):
 
         stage_stats = {"loss": stage_loss}
@@ -330,7 +343,22 @@ def main():
         run_opts=run_opts,
         checkpointer=hparams["checkpointer"],
     )
-    # with torch.autograd.detect_anomaly():
+
+    print(f'Percentage Masked: {hparams["mask_prob"] * 4 * 100}%')
+
+    # define growth_stage
+    brain.growth_stage = hparams['growth_stage']
+    brain.total_layers = list(range(brain.modules.wrapper.transformer.encoder.num_layers))
+    brain.modules.wrapper.transformer.encoder.layers_to_use = brain.total_layers[:brain.growth_stage] + brain.total_layers[-brain.growth_stage:]
+    print(f'brain.modules.wrapper.transformer.encoder.layers_to_use: {brain.modules.wrapper.transformer.encoder.layers_to_use}')
+    
+    # set up to reset optimizer
+    if hparams['reset_optimizer_on_growth']:
+        brain.reset_optimizer = True
+    else:
+        brain.reset_optimizer = False
+
+
     brain.fit(
         brain.hparams.epoch_counter,
         train_dataset,
