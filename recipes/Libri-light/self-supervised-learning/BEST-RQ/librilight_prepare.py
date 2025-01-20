@@ -158,11 +158,14 @@ def process_and_split_line(wav_file, split_interval) -> list:
     split_interval = split_interval * info.sample_rate
     new_rows = []
     start = 0 
+    components = wav_file.split(os.sep)
+    id_name = os.path.join(components[-2], components[-1])
+
     if split_interval != 0:
         while start < duration:
             stop = min(start + split_interval, duration)
             new_rows.append([
-                os.path.basename(wav_file) + str(start / info.sample_rate),
+                id_name + str(start / info.sample_rate),
                 wav_file,
                 start,
                 stop,
@@ -171,7 +174,7 @@ def process_and_split_line(wav_file, split_interval) -> list:
             start = start + split_interval
     else:
         new_rows.append([
-            os.path.basename(wav_file),
+            id_name,
             wav_file,
             0,
             0,
