@@ -105,7 +105,7 @@ class BestRQBrain(sb.core.Brain):
 
         # update learning rate
         if should_step:
-            if (self.optimizer_step - self.stagger) > 0 and (self.optimizer_step < self.num_of_lrs) :
+            if (self.optimizer_step - self.stagger) > 0 and (self.optimizer_step <= self.num_of_lrs) :
                 update_learning_rate(self.optimizer, self.lrs[self.optimizer_step - self.stagger])
                 self.losses.append(loss.cpu().detach())
                 self.lrs_saved.append(self.optimizer.param_groups[0]["lr"].cpu().detach())
