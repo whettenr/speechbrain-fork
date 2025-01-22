@@ -107,9 +107,7 @@ class BestRQBrain(sb.core.Brain):
         if should_step:
             if (self.optimizer_step - self.stagger) > 0 and (self.optimizer_step < self.num_of_lrs) :
                 update_learning_rate(self.optimizer, self.lrs[self.optimizer_step - self.stagger])
-                print('appending loss: ', loss.cpu().detach())
                 self.losses.append(loss.cpu().detach())
-                print('appending lr: ', self.optimizer.param_groups[0]["lr"].cpu().detach())
                 self.lrs_saved.append(self.optimizer.param_groups[0]["lr"].cpu().detach())
             else:
                 self.hparams.noam_annealing(self.optimizer)
@@ -141,7 +139,7 @@ class BestRQBrain(sb.core.Brain):
                     stats_meta=log_dct,
                 )
                 
-                if (self.optimizer_step - self.stagger) > self.num_of_lrs:
+                if (self.optimizer_step - self.stagger) = self.num_of_lrs:
                     save_pkl((self.losses,self.learn_rate_exps), self.hparams.output_lrs_file)
 
     def on_stage_start(self, stage, epoch):
