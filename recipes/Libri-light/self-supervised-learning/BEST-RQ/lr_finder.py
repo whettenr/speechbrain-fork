@@ -103,15 +103,14 @@ class BestRQBrain(sb.core.Brain):
     def on_fit_batch_end(self, batch, outputs, loss, should_step):
         """Called after fit_batch(), updates learning rate and does per-step logging."""
 
+        # update learning rate
         if should_step:
             if (self.optimizer_step - self.stagger) > 0 and (self.optimizer_step < self.num_of_lrs) :
                 update_learning_rate(self.optimizer, self.lrs[self.optimizer_step - self.stagger])
-                self.losses.append(loss)
-                if (self.optimizer_step - self.stagger) == self.num_of_lrs:
-                    if (hasattr(self.hparams, "output_lrs_file")):
-                        save_pkl((self.losses,self.learn_rate_exps), self.hparams.output_lrs_file)
-                    else:
-                        save_pkl((self.losses,self.learn_rate_exps), 'lr_finder_output.pkl')
+                print('appending loss: ', loss.cpu().detach())
+                self.losses.append(loss.cpu().detach())
+                print('appending lr: ', self.optimizer.param_groups[0]["lr"].cpu().detach())
+                self.lrs_saved.append(self.optimizer.param_groups[0]["lr"].cpu().detach())
             else:
                 self.hparams.noam_annealing(self.optimizer)
 
@@ -129,6 +128,7 @@ class BestRQBrain(sb.core.Brain):
             current_lr = self.optimizer.param_groups[0]["lr"]
             log_dct["steps"] = self.optimizer_step
             log_dct["lr"] = current_lr
+            log_dct["loss"] = loss
             log_dct["avg_loss"] = self.avg_train_loss
 
             if hasattr(self, "time_last_log"):
@@ -140,6 +140,9 @@ class BestRQBrain(sb.core.Brain):
                 self.hparams.train_steps_logger.log_stats(
                     stats_meta=log_dct,
                 )
+                
+                if (self.optimizer_step - self.stagger) > self.num_of_lrs:
+                    save_pkl((self.losses,self.learn_rate_exps), self.hparams.output_lrs_file)
 
     def on_stage_start(self, stage, epoch):
         """Gets called at the beginning of each epoch"""
@@ -349,6 +352,7 @@ def main():
     brain.learn_rate_exps = torch.linspace(brain.start_exp, brain.end_exp, brain.num_of_lrs)
     brain.lrs = 10**brain.learn_rate_exps
     brain.losses = []
+    brain.lrs_saved = []
 
     # with torch.autograd.detect_anomaly():
     brain.fit(
