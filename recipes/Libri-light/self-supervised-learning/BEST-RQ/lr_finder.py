@@ -139,7 +139,7 @@ class BestRQBrain(sb.core.Brain):
                     stats_meta=log_dct,
                 )
                 
-                if (self.optimizer_step - self.stagger) = self.num_of_lrs:
+                if (self.optimizer_step - self.stagger) > 0:
                     save_pkl((self.losses,self.learn_rate_exps), self.hparams.output_lrs_file)
 
     def on_stage_start(self, stage, epoch):
