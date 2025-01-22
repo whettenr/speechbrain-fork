@@ -140,7 +140,7 @@ class BestRQBrain(sb.core.Brain):
                 )
                 
                 if (self.optimizer_step - self.stagger) > 0:
-                    save_pkl((self.losses,self.learn_rate_exps), self.hparams.output_lrs_file)
+                    save_pkl((self.lrs_saved,self.learn_rate_exps), self.hparams.output_lrs_file)
 
     def on_stage_start(self, stage, epoch):
         """Gets called at the beginning of each epoch"""
