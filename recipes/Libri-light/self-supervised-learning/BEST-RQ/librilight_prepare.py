@@ -122,7 +122,7 @@ def prepare_librilight(
             os.path.join(data_folder, split), match_and=[".flac"]
         )
 
-        create_csv(save_folder, wav_lst[:20], split, split_interval)
+        create_csv(save_folder, wav_lst, split, split_interval)
 
     # Merging csv file if needed
     if merge_lst and merge_name is not None:
