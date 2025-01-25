@@ -300,7 +300,7 @@ def main():
         overrides=overrides,
     )
 
-    from librispeech_prepare import prepare_librispeech
+    from lebenchmark_prepare_prepare import prepare_librispeech
 
     run_on_main(
         prepare_librispeech,
