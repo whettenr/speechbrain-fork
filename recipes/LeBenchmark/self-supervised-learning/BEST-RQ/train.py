@@ -305,7 +305,6 @@ def main():
     run_on_main(
         prepare_lebenchmark,
         kwargs={
-            "data_folder": hparams["data_folder"],
             "tr_splits": hparams["train_splits"],
             "dev_splits": hparams["dev_splits"],
             "te_splits": hparams["test_splits"],

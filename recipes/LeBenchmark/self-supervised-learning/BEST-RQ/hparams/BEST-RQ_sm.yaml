@@ -16,7 +16,9 @@ train_steps_log: !ref <output_folder>/train_steps_log.txt
 # Logging file per epoch
 train_stage_log: !ref <output_folder>/train_stage_log.txt
 
-
+train_splits: ["mls_french/train"]
+dev_splits: ["mls_french/dev"]
+test_splits: ["mls_french/test"]
 train_csv: !ref <output_folder>/train.csv
 valid_csv: !ref <output_folder>/dev-clean.csv
 skip_prep: False
