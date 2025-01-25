@@ -300,7 +300,7 @@ def main():
         overrides=overrides,
     )
 
-    from lebenchmark_prepare_prepare import prepare_lebenchmark
+    from lebenchmark_prepare import prepare_lebenchmark
 
     run_on_main(
         prepare_lebenchmark,
