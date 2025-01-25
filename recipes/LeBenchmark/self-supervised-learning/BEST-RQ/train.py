@@ -300,10 +300,10 @@ def main():
         overrides=overrides,
     )
 
-    from lebenchmark_prepare_prepare import prepare_librispeech
+    from lebenchmark_prepare_prepare import prepare_lebenchmark
 
     run_on_main(
-        prepare_librispeech,
+        prepare_lebenchmark,
         kwargs={
             "data_folder": hparams["data_folder"],
             "tr_splits": hparams["train_splits"],
