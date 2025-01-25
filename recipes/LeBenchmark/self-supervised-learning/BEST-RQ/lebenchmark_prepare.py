@@ -4,16 +4,6 @@ Data preparation for Libri-light
 Author
 ------
  * Ryan Whetten, 2025
-
-
-Download: https://github.com/facebookresearch/libri-light/tree/main/data_preparation
-Directory Structure
-Libri-light/
-├── duplicate
-├── large
-├── LibriSpeech (only need dev and test sets)
-├── medium
-└── small
 """
 
 import csv
@@ -117,7 +107,7 @@ def prepare_lebenchmark(
     
     # create csv for each dataset
     for split in splits:
-        wav_lst = get_all_files(split, match_and=[".wav"])
+        wav_lst = get_all_files(split, match_or=[".wav", ".flac"])
         create_csv(save_folder, wav_lst, split, split_interval)        
 
     # Merging csv file if needed

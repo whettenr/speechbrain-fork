@@ -46,17 +46,25 @@ fi
 
 ### African_Accented_French ###
 echo 'moving African_Accented_French'
-scp -r -3 /lustre/fsstor/projects/rech/oou/commun/pretraining_data/Panta_v1/SpeechData/aligned/manual_transc/African_Accented_French $SCRATCH/LeBenchmark
-echo 'unpacking African_Accented_French...'
-tar -xf $SCRATCH/LeBenchmark/EPAC_flowbert/wavs.tar
-echo 'done unpacking African_Accented_French!'
+if [ -d "$SCRATCH/LeBenchmark/African_Accented_French" ]; then
+    echo "Files already unpacked. Skipping extraction."
+else
+    scp -r -3 /lustre/fsstor/projects/rech/oou/commun/pretraining_data/Panta_v1/SpeechData/aligned/manual_transc/African_Accented_French $SCRATCH/LeBenchmark
+    echo 'unpacking African_Accented_French...'
+    tar -xf $SCRATCH/LeBenchmark/African_Accented_French/wavs.tar
+    echo 'done unpacking African_Accented_French!'
+fi
 
 ### Att-HACK_SLR88 ###
 echo 'moving Att-HACK_SLR88'
-scp -r -3 /lustre/fsstor/projects/rech/oou/commun/pretraining_data/Panta_v1/SpeechData/aligned/manual_transc/Att-HACK_SLR88 $SCRATCH/LeBenchmark
-echo 'unpacking Att-HACK_SLR88...'
-tar -xf $SCRATCH/LeBenchmark/Att-HACK_SLR88/wavs.tar
-echo 'done unpacking Att-HACK_SLR88!'
+if [ -d "$SCRATCH/LeBenchmark/Att-HACK_SLR88" ]; then
+    echo "Files already unpacked. Skipping extraction."
+else
+    scp -r -3 /lustre/fsstor/projects/rech/oou/commun/pretraining_data/Panta_v1/SpeechData/aligned/manual_transc/Att-HACK_SLR88 $SCRATCH/LeBenchmark
+    echo 'unpacking Att-HACK_SLR88...'
+    tar -xf $SCRATCH/LeBenchmark/Att-HACK_SLR88/wavs.tar
+    echo 'done unpacking Att-HACK_SLR88!'
+fi
 
 ### CaFE ###
 echo 'moving CaFE'
