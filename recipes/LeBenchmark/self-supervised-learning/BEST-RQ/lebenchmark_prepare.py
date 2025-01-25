@@ -38,10 +38,8 @@ logger = get_logger(__name__)
 
 
 def prepare_lebenchmark(
-    data_folders,
     save_folder,
     tr_splits=[],
-    tr_save_names=[],
     dev_splits=[],
     te_splits=[],
     merge_lst=[],
@@ -60,12 +58,11 @@ def prepare_lebenchmark(
     save_folder : str
         The directory where to store the csv files.
     tr_splits : list
-        List of train splits to prepare from ['small', 'medium-clean', 
-        'medium', 'large', 'extra-large'].
+        List of train splits to prepare.
     dev_splits : list
-        List of dev splits to prepare from LibriSpeech ['dev-clean','dev-others'].
+        List of dev splits to prepare from.
     te_splits : list
-        List of test splits to prepare from LibriSpeech ['test-clean','test-others'].
+        List of test splits to prepare from.
     merge_lst : list
         List of splits (e.g, small, medium,..) to
         merge in a single csv file.
@@ -91,80 +88,69 @@ def prepare_lebenchmark(
     >>> te_splits = ['LibriSpeech/test-clean']
     >>> save_folder = '/users/rwhetten/attention_alt/grow-brq/lebenchmark_prep_test'
     >>> prepare_lebenchmark(data_folder, save_folder, tr_splits, dev_splits, te_splits)
-
-data_folders = ['/corpus/LeBenchmark/mls_french_flowbert/gpfswork/rech/zfg/commun/data/temp/mls_french', '/corpus/LeBenchmark/epac_flowbert/EPAC_flowbert']
-tr_splits = ['train', 'output_waves']
-tr_save_names = ['mls', 'epac']
-
-from lebenchmark_prepare import prepare_lebenchmark
-data_folders = ['/corpus/LeBenchmark/mls_french_flowbert/gpfswork/rech/zfg/commun/data/temp/mls_french']
-tr_splits = ['train']
-tr_save_names = ['mls', 'epac']
-dev_splits = ['LibriSpeech/dev-clean']
-te_splits = ['LibriSpeech/test-clean']
-merge_lst = tr_save_names
-merge_name = "train.csv"
-save_folder = '/users/rwhetten/attention_alt/grow-brq/lebenchmark_prep_test'
-prepare_lebenchmark(data_folders, save_folder, tr_splits, tr_save_names, dev_splits, te_splits, merge_lst, merge_name)
     """
+
+    # TODO adjust script to get savename and tr_splits from folder 
+    # TODO dev set
 
     if skip_prep:
         return
-    splits = tr_splits 
-    split_save_names = tr_save_names 
-    # + dev_splits + te_splits
+
+    # splits = all train and validation datasets
+    splits = tr_splits + dev_splits + te_splits
     save_folder = save_folder
 
-    # Other variables
     # Saving folder
     if not os.path.exists(save_folder):
         os.makedirs(save_folder)
 
+
+    # Additional checks to make sure the data folder contains the dataset
+    check_folders(splits)
+
     # Check if this phase is already done (if so, skip it)
-    if skip(split_save_names, save_folder):
-        logger.info("Skipping preparation, completed in previous run.")
+    if skip(splits, save_folder):
+        logger.info(f'Skipping preparation, completed in previous run.')
         return
     else:
         logger.info("Data_preparation...")
-
-    # Additional checks to make sure the data folder contains Librispeech
-    check_folders(data_folders, splits)
     
-
     # create csv for each dataset
-    for data_folder, split, split_save_name in zip(data_folders, splits, split_save_names):
-        wav_lst = get_all_files(
-            os.path.join(data_folder, split), match_or=[".flac", ".wav"]
-        )
-
-        create_csv(save_folder, wav_lst[:20], split, split_save_name, split_interval)
-
-        
+    for split in splits:
+        wav_lst = get_all_files(split, match_and=[".wav"])
+        create_csv(save_folder, wav_lst, split, split_interval)        
 
     # Merging csv file if needed
-    print("merge_lst")
-    print(merge_lst)
-    print("merge_name")
-    print(merge_name)
     if merge_lst and merge_name is not None:
-        merge_files = [spl + ".csv" for spl in merge_lst]
+        merge_files = []
+        for split in splits:
+            split_name = split.split('/')[-2]
+            if 'dev' in split:
+                split_name += '-dev'
+            if 'test' in split:
+                split_name += '-test'
+            merge_files.append(split_name + '.csv')
+        
         print("merge_files")
         print(merge_files)
         merge_csvs(
             data_folder=save_folder, csv_lst=merge_files, merged_csv=merge_name
         )
 
-    # logger.info("Data info...")
-    # for split in splits:
-    #     path = os.path.join(save_folder, os.path.basename(split) + ".csv")
-    #     df = pd.read_csv(path)
-    #     hours = df.duration.sum() / 3600
-    #     logger.info(f'Split {split} contains {hours} hours')
+    logger.info("Data info...")
+    print("Data info...")
+    for split in merge_files:
+        path = os.path.join(save_folder, split)
+        df = pd.read_csv(path)
+        hours = df.duration.sum() / 3600
+        logger.info(f'Split {split} contains {hours} hours')
+        print(f'Split {split} contains {hours} hours')
 
-    # path = os.path.join(save_folder, "train.csv")
-    # df = pd.read_csv(path)
-    # hours = df.duration.sum() / 3600
-    # logger.info(f'Total hours in training: {hours}')
+    path = os.path.join(save_folder, "train.csv")
+    df = pd.read_csv(path)
+    hours = df.duration.sum() / 3600
+    logger.info(f'Total hours in training: {hours}')
+    print(f'Total hours in training: {hours}')
 
 
 @dataclass
@@ -183,7 +169,6 @@ def process_and_split_line(wav_file, split_interval) -> list:
     start = 0 
     components = wav_file.split(os.sep)
     id_name = os.path.join(components[-2], components[-1])
-    print(f'looking at: {wav_file}, {duration}')
     if split_interval != 0:
         while start < duration:
             stop = min(start + split_interval, duration)
@@ -218,20 +203,17 @@ def process_line(wav_file) -> LSRow:
         duration=duration,
     )
 
-def create_csv(save_folder, wav_lst, split, split_save_name, split_interval):
+def create_csv(save_folder, wav_lst, split, split_interval):
     """
     Create the dataset csv file given a list of wav files.
 
     Arguments
-    ---------
     save_folder : str
         Location of the folder for storing the csv.
     wav_lst : list
         The list of wav files of a given data split.
     split : str
         The name of the current data split.
-    split_save_name : str
-        The name to save the csv file.
     split_interval : int
         Max len of audio.
 
@@ -240,7 +222,12 @@ def create_csv(save_folder, wav_lst, split, split_save_name, split_interval):
     None
     """
     # Setting path for the csv file
-    csv_file = os.path.join(save_folder, os.path.basename(split_save_name) + ".csv")
+    split_name = split.split('/')[-2]
+    if 'dev' in split:
+        split_name += '-dev'
+    if 'test' in split:
+        split_name += '-test'
+    csv_file = os.path.join(save_folder, split_name + ".csv")
     if os.path.exists(csv_file):
         logger.info("Csv file %s already exists, not recreating." % csv_file)
         print("Csv file %s already exists, not recreating." % csv_file)
@@ -256,7 +243,6 @@ def create_csv(save_folder, wav_lst, split, split_save_name, split_interval):
     # FLAC metadata reading is already fast, so we set a high chunk size
     # to limit main thread CPU bottlenecks
     if 'dev' in split or 'test' in split:
-        print('dev or test')
         logger.info(f'Processing {split}')
         for row in parallel_map(process_line, wav_lst, chunk_size=8192):
             csv_line = [
@@ -270,7 +256,6 @@ def create_csv(save_folder, wav_lst, split, split_save_name, split_interval):
             # Appending current file to the csv_lines list
             csv_lines.append(csv_line)
     else:
-        print('in else')
         csv_lines = [["ID", "wav", "start", "stop", "duration"]]
         logger.info(f'Processing {split} and splitting into {split_interval} sec chunks...')
         print(f'Processing {split} and splitting into {split_interval} sec chunks...')
@@ -294,9 +279,9 @@ def create_csv(save_folder, wav_lst, split, split_save_name, split_interval):
     logger.info(msg)
 
 
-def skip(splits_names, save_folder):
+def skip(splits, save_folder):
     """
-    Detect when the Libri-light data prep can be skipped.
+    Detect when the data prep can be skipped.
 
     Arguments
     ---------
@@ -315,12 +300,19 @@ def skip(splits_names, save_folder):
     # Checking csv files
     skip = True
 
-    for split in splits_names:
-        if not os.path.isfile(os.path.join(save_folder, os.path.basename(split) + ".csv")):
+    for split in splits:
+        split_name = split.split('/')[-2]
+        if 'dev' in split:
+            split_name += '-dev'
+        if 'test' in split:
+            split_name += '-test'
+        print(f'Checking {os.path.join(save_folder, split_name + ".csv")}')
+        if not os.path.isfile(os.path.join(save_folder, split_name + ".csv")):
             skip = False
+    return skip
 
 
-def check_folders(data_folders, splits):
+def check_folders(splits):
     """
     Check if the data folder actually contains the dataset.
 
@@ -339,13 +331,15 @@ def check_folders(data_folders, splits):
         If folder is not found at the specified path.
     """
     # Checking if all the splits exist
-    for data_folder, split in zip(data_folders, splits):
-        logger.info(f'Checking {data_folder}/{split}')
-        print(f'Checking {data_folder}/{split}')
-        split_folder = os.path.join(data_folder, split)
-        if not os.path.exists(split_folder):
+    for split in splits:
+        split_name = split.split('/')[-2]
+        split_audio_location = split.split('/')[-1]
+        logger.info(f'Checking {split_name}/{split_audio_location}')
+        print(f'Checking {split_name}/{split_audio_location}')
+
+        if not os.path.exists(split):
             err_msg = (
                 "the folder %s does not exist (it is expected in the "
-                "dataset)" % split_folder
+                "dataset)" % split
             )
             raise OSError(err_msg)
