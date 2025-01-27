@@ -372,7 +372,7 @@ if __name__ == "__main__":
     )
 
     # Load the pretrained model
-    if "pretrainer" in hparams.keys() and hparams["pt_model_path"] is not None:
+    if "pretrainer" in hparams.keys() and hparams["hub"] is not None:
         hparams["pretrainer"].collect_files()
         hparams["pretrainer"].load_collected()
 
