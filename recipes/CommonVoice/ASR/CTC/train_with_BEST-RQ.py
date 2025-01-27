@@ -347,7 +347,7 @@ if __name__ == "__main__":
     # Defining tokenizer and loading it
     tokenizer = SentencePiece(
         model_dir=hparams["save_folder"],
-        vocab_size=hparams["output_neurons"],
+        vocab_size=hparams["output_neurons_ctc"],
         annotation_train=hparams["train_csv"],
         annotation_read="wrd",
         model_type=hparams["token_type"],
