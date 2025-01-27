@@ -85,7 +85,7 @@ n_fft: 400
 n_mels: 80
 
 # Outputs
-output_neurons: 76  # BPE size, index(blank/eos/bos) = 0
+output_neurons_ctc: 76  # BPE size, index(blank/eos/bos) = 0
 
 # Decoding parameters
 # Be sure that the bos and eos index match with the BPEs ones
@@ -234,7 +234,7 @@ pt_model: !new:torch.nn.ModuleList
 
 ctc_lin: !new:speechbrain.nnet.linear.Linear
     input_size: !ref <dnn_neurons>
-    n_neurons: !ref <output_neurons>
+    n_neurons: !ref <output_neurons_ctc>
 
 log_softmax: !new:speechbrain.nnet.activations.Softmax
     apply_log: True
