@@ -20,7 +20,7 @@ train_splits: ["mls_french/train"]
 dev_splits: ["mls_french/dev"]
 test_splits: ["mls_french/test"]
 train_csv: !ref <output_folder>/train.csv
-valid_csv: !ref <output_folder>/dev-clean.csv
+valid_csv: !ref <output_folder>/mls_french-dev.csv
 skip_prep: False
 
 avoid_if_longer_than: 60.0
