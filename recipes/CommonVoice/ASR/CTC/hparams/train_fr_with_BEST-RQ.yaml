@@ -289,8 +289,8 @@ pretrainer: !new:speechbrain.utils.parameter_transfer.Pretrainer
         pt_model: !ref <pt_model>
         normalize: !ref <normalize>
     paths:
-        pt_model: !ref <pt_model_path>/model.ckpt
-        normalize: !ref <pt_model_path>/normalizer.ckpt
+        pt_model: !ref <hub>/model.ckpt
+        normalize: !ref <hub>/normalizer.ckpt
 
 train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
     save_file: !ref <train_log>
