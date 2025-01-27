@@ -37,7 +37,7 @@ number_of_epochs: 30
 lr: 1.0
 lr_bestrq: 0.0001
 sorting: ascending
-precision: fp32 # bf16, fp16 or fp32
+precision: fp16 # bf16, fp16 or fp32
 sample_rate: 16000
 ckpt_interval_minutes: 30 # save checkpoint every N min
 
@@ -278,7 +278,7 @@ checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
     recoverables:
         model: !ref <model>
         pt_model: !ref <pt_model>
-        normalize: !ref <normalize
+        normalize: !ref <normalize>
         scheduler_model: !ref <lr_annealing_model>
         scheduler_bestrq: !ref <lr_annealing_bestrq>
         counter: !ref <epoch_counter>
