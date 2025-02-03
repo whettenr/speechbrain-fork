@@ -1717,7 +1717,6 @@ class Brain:
         elif self.distributed_launch:
             for name, module in self.modules.items():
                 if any(p.requires_grad for p in module.parameters()):
-                    print(name)
                     module = SyncBatchNorm.convert_sync_batchnorm(module)
                     if self.distributed_backend == "gloo":
                         module = DDP(
