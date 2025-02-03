@@ -4,7 +4,7 @@
 To run this recipe call python train.py BEST-RQ.yaml --find_unused_parameters
 
 Authors
-    * Ryan Whetten 2023
+    * Ryan Whetten 2025
 """
 
 import sys
@@ -38,6 +38,7 @@ class BestRQBrain(sb.core.Brain):
             wav_lens.to(self.device),
             mask.to(self.device),
         )
+
 
         ### get fbanks and normalize
         feats = self.hparams.compute_features(wavs)
@@ -89,11 +90,11 @@ class BestRQBrain(sb.core.Brain):
                 correct_predictions
             )
             self.acc_metric.append(accuracy)
-
+        
         return F.cross_entropy(pred, targets)
 
     def on_fit_batch_end(self, batch, outputs, loss, should_step):
-        """Called after fit_batch(), updates learning rate and does per-step logging."""
+        """Called after fit_batch(), updates learning rate and does per-step loggxng."""
 
         if should_step:
             self.hparams.noam_annealing(self.optimizer)
@@ -124,8 +125,12 @@ class BestRQBrain(sb.core.Brain):
                     stats_meta=log_dct,
                 )
 
+
     def on_stage_start(self, stage, epoch):
         """Gets called at the beginning of each epoch"""
+        if stage == sb.Stage.TRAIN:
+            self.predictions = []
+            self.targets = []
         if stage != sb.Stage.TRAIN:
             self.acc_metric = []
 
@@ -235,7 +240,7 @@ def dataio_prepare(hparams):
     @sb.utils.data_pipeline.takes("wav")
     @sb.utils.data_pipeline.provides("sig")
     def audio_pipeline(wav):
-        sig = sb.dataio.dataio.read_audio(wav)
+        sig = sb.dataio.dataio.read_audio(wav) 
         return sig
 
     sb.dataio.dataset.add_dynamic_item(datasets, audio_pipeline)
@@ -332,4 +337,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

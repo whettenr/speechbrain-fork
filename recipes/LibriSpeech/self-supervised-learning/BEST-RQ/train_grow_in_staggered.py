@@ -4,10 +4,9 @@
 To run this recipe call python train.py BEST-RQ.yaml --find_unused_parameters
 
 Authors
-    * Ryan Whetten 2023
+    * Ryan Whetten 2025
 """
 
-import logging
 import sys
 import time
 from functools import partial
@@ -21,8 +20,9 @@ from speechbrain.dataio.dataloader import SaveableDataLoader
 from speechbrain.dataio.sampler import DynamicBatchSampler
 from speechbrain.lobes.models.BESTRQ import brq_mask_collate_fn
 from speechbrain.utils.distributed import run_on_main
+from speechbrain.utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class BestRQBrain(sb.core.Brain):
@@ -44,18 +44,14 @@ class BestRQBrain(sb.core.Brain):
         current_epoch = self.hparams.epoch_counter.current
         feats = self.modules.normalize(feats, wav_lens, epoch=current_epoch)
 
-        ### augment data if necessary
-        if stage == sb.Stage.TRAIN:
-            if hasattr(self.hparams, "augmentation"):
-                feats = self.hparams.augmentation(feats)
-
         divis_by = self.hparams.pad_to_divisible_by
         feats = pad_feats(feats, divis_by)
 
         # get targets from quantizer and stack the frames!
+        mask_idx = mask[::4] // 4
         B, T, C = feats.shape
         targets = self.modules.Quantizer(
-            feats.view(B, feats.shape[1] // divis_by, -1)
+            feats.view(B, feats.shape[1] // divis_by, -1)[:,mask_idx,:]
         )
 
         # generate random noise
@@ -78,9 +74,7 @@ class BestRQBrain(sb.core.Brain):
         logits = self.modules.linear(enc_out)
 
         ##### get masked region for loss computation only over these.
-        mask_idx = mask[::divis_by] // divis_by
         logits = logits[:, mask_idx, :]
-        targets = targets[:, mask_idx]
 
         B, T, C = logits.shape
         return logits.view(B * T, C), targets.view(B * T)
@@ -177,6 +171,10 @@ def pad_feats(feats, divis_by):
     divis_by: int
         The stacking factor. The time dimension of feats will become divisible
         by this value.
+
+    Returns
+    -------
+    Padded features
     """
 
     B, T, C = feats.shape
@@ -283,12 +281,11 @@ def dataio_prepare(hparams):
 
 
 def main():
-    logger.setLevel(logging.INFO)
     hparams_file, run_opts, overrides = sb.parse_arguments(sys.argv[1:])
 
     sb.utils.distributed.ddp_init_group(run_opts)
 
-    with open(hparams_file) as fin:
+    with open(hparams_file, encoding="utf-8") as fin:
         hparams = load_hyperpyyaml(fin, overrides)
     hparams.update(run_opts)
 
