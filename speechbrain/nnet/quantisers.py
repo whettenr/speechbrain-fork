@@ -165,6 +165,9 @@ class RandomProjectionQuantizer(nn.Module):
         # normalize random matrix for codebook
         self.register_buffer("CB", F.normalize(torch.randn(cb_vocab, cb_dim)))
 
+        self.dummy = nn.Parameter(torch.empty(0))
+
+
     def forward(self, x):
         """Forward the latent vector to obtain a quantised output"""
 
